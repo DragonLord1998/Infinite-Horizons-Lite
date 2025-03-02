@@ -8,6 +8,7 @@ import { setupCamera } from './core/camera.js';
 import { initChunkManager } from './terrain/chunkManager.js';
 import { setupCameraControls } from './controls/cameraControls.js';
 import { initPerformanceMonitor } from './utils/performance.js';
+import { initUI } from './utils/uiHelper.js';
 
 // Wait for DOM to be ready
 document.addEventListener('DOMContentLoaded', initApp);
@@ -37,7 +38,10 @@ async function initApp() {
         const chunkManager = initChunkManager(scene, camera);
         
         // Setup camera controls
-        setupCameraControls(scene, camera);
+        const cameraControls = setupCameraControls(scene, camera);
+        
+        // Initialize UI helper
+        const uiHelper = initUI(scene, chunkManager, cameraControls);
         
         // Initialize performance monitoring if enabled
         if (config.performance.enableStats) {
@@ -46,7 +50,7 @@ async function initApp() {
         
         // Enable inspector if in debug mode
         if (config.debug.enableInspector) {
-            // FIXED: Updated debug layer initialization
+            // Fixed debug layer initialization
             window.addEventListener('keydown', (event) => {
                 // Ctrl+Shift+I to toggle inspector
                 if (event.ctrlKey && event.shiftKey && event.code === 'KeyI') {
@@ -64,11 +68,23 @@ async function initApp() {
             });
         }
         
+        // Update UI elements before rendering
+        scene.onBeforeRenderObservable.add(() => {
+            // Update minimap with camera position
+            uiHelper.updateMinimap(camera.position.x, camera.position.z);
+        });
+        
         // Hide loading screen
         const loadingScreen = document.getElementById('loadingScreen');
         if (loadingScreen) {
             loadingScreen.style.display = 'none';
         }
+        
+        // Show help overlay initially, then hide after 5 seconds
+        uiHelper.toggleHelp();
+        setTimeout(() => {
+            uiHelper.toggleHelp();
+        }, 5000);
         
         // Start the render loop
         engine.runRenderLoop(() => {

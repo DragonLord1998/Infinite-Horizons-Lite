@@ -1,5 +1,5 @@
 /**
- * Noise generation functions for terrain generation
+ * Enhanced noise generation functions for terrain generation
  */
 
 /**
@@ -39,15 +39,18 @@ export function createNoiseGenerator(noiseConfig) {
             // Scale factor to convert from grid coordinates to world coordinates
             const scale = chunkSize / (resolution - 1);
             
-            // Generate heightmap values
+            // Generate heightmap values with additional noise variations
             for (let z = 0; z < resolution; z++) {
                 for (let x = 0; x < resolution; x++) {
                     // Calculate world coordinates for this point
                     const wx = worldX + x * scale;
                     const wz = worldZ + z * scale;
                     
-                    // Get noise value
-                    const noiseValue = this.getFractalNoise(wx, wz);
+                    // Get base noise value
+                    let noiseValue = this.getFractalNoise(wx, wz);
+                    
+                    // Apply terrain enhancements
+                    noiseValue = this.enhanceTerrain(wx, wz, noiseValue);
                     
                     // Store in the heightmap array
                     heightmap[z * resolution + x] = noiseValue;
@@ -55,6 +58,51 @@ export function createNoiseGenerator(noiseConfig) {
             }
             
             return heightmap;
+        },
+        
+        /**
+         * Enhance terrain with additional features
+         * @param {number} x - X coordinate in world space
+         * @param {number} z - Z coordinate in world space
+         * @param {number} baseNoise - Base noise value
+         * @returns {number} Enhanced noise value
+         */
+        enhanceTerrain(x, z, baseNoise) {
+            // Add ridged noise for mountains
+            const ridgedNoise = this.getRidgedNoise(x, z) * 0.3;
+            
+            // Add warped noise for valleys
+            const warpedNoise = this.getWarpedNoise(x, z) * 0.15;
+            
+            // Combine different noise types
+            let enhancedNoise = baseNoise * 0.6 + ridgedNoise + warpedNoise;
+            
+            // Apply plateaus
+            enhancedNoise = this.applyPlateaus(enhancedNoise);
+            
+            // Ensure value is in [0, 1] range
+            return Math.max(0, Math.min(1, enhancedNoise));
+        },
+        
+        /**
+         * Apply plateaus to create more interesting terrain features
+         * @param {number} noiseValue - Input noise value
+         * @returns {number} Noise with plateau effects
+         */
+        applyPlateaus(noiseValue) {
+            // Create plateaus by slightly flattening certain height ranges
+            if (noiseValue > 0.75) {
+                // Flatten high peaks slightly
+                return 0.75 + (noiseValue - 0.75) * 0.8;
+            } else if (noiseValue > 0.5 && noiseValue < 0.58) {
+                // Create a mid-level plateau
+                return 0.5 + (noiseValue - 0.5) * 0.3;
+            } else if (noiseValue < 0.2) {
+                // Flatten low areas for valleys
+                return noiseValue * 0.9;
+            }
+            
+            return noiseValue;
         },
         
         /**
@@ -87,15 +135,63 @@ export function createNoiseGenerator(noiseConfig) {
         },
         
         /**
+         * Generate ridged noise (absolute value of noise with inversion)
+         * @param {number} x - X coordinate in world space
+         * @param {number} z - Z coordinate in world space
+         * @returns {number} Ridged noise value in range [0, 1]
+         */
+        getRidgedNoise(x, z) {
+            let amplitude = 1.0;
+            let frequency = state.scale * 1.8; // Different base frequency
+            let noiseValue = 0;
+            let amplitudeSum = 0;
+            
+            // Sum multiple octaves
+            for (let i = 0; i < state.octaves; i++) {
+                // Get noise value
+                let n = this.getNoise(x * frequency, z * frequency);
+                
+                // Make ridged by taking absolute value and inverting
+                n = 1.0 - Math.abs(n);
+                
+                // Square the result to create sharper ridges
+                n *= n;
+                
+                // Add to sum
+                noiseValue += n * amplitude;
+                amplitudeSum += amplitude;
+                
+                // Update for next octave
+                amplitude *= state.persistence;
+                frequency *= state.lacunarity;
+            }
+            
+            // Normalize the result to [0, 1]
+            return (noiseValue / amplitudeSum);
+        },
+        
+        /**
+         * Generate domain-warped noise for more natural terrain
+         * @param {number} x - X coordinate in world space
+         * @param {number} z - Z coordinate in world space
+         * @returns {number} Warped noise value in range [0, 1]
+         */
+        getWarpedNoise(x, z) {
+            // Apply domain warping by using noise to offset sampling coordinates
+            const warpX = this.getNoise(x * state.scale * 0.5, z * state.scale * 0.5) * 10.0;
+            const warpZ = this.getNoise(x * state.scale * 0.5 + 100, z * state.scale * 0.5 + 100) * 10.0;
+            
+            // Sample noise at the warped location
+            return this.getFractalNoise(x + warpX, z + warpZ);
+        },
+        
+        /**
          * Get raw noise value at coordinates
          * @param {number} x - X coordinate
          * @param {number} y - Y coordinate
          * @returns {number} Noise value in range [-1, 1]
          */
         getNoise(x, y) {
-            // Simple value noise implementation
-            // This is a placeholder - a more sophisticated noise function can be added later
-            
             // Get integer and fractional parts
             const xi = Math.floor(x);
             const yi = Math.floor(y);
@@ -145,11 +241,12 @@ export function createNoiseGenerator(noiseConfig) {
             let iy = Math.floor(y);
             let iseed = Math.floor(seed);
             
-            // Hash function based on bit manipulation
+            // Improved hash function for better distribution
             let h = iseed & 0xFFFF;
             h = (h * 73 + ix) & 0xFFFF;
             h = (h * 73 + iy) & 0xFFFF;
-            h = (h * 73 + h) & 0xFFFF;
+            h = h * (h + 19) & 0xFFFF;
+            h = (h * h * 60493) & 0xFFFF;
             
             return h;
         },

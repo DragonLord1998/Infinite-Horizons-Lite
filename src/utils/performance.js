@@ -11,10 +11,20 @@ import config from '../config.js';
  * @returns {Object} Performance monitoring object
  */
 export function initPerformanceMonitor(engine, scene, chunkManager) {
+    // Update the HTML to include face count display
+    const statsDiv = document.getElementById('stats');
+    if (statsDiv) {
+        statsDiv.innerHTML = 'FPS: <span id="fps">0</span> | ' +
+                            'Chunks: <span id="chunkCount">0</span> | ' +
+                            'Vertices: <span id="vertexCount">0</span> | ' +
+                            'Faces: <span id="faceCount">0</span>';
+    }
+    
     // Get DOM elements for displaying stats
     const fpsElement = document.getElementById('fps');
     const chunkCountElement = document.getElementById('chunkCount');
     const vertexCountElement = document.getElementById('vertexCount');
+    const faceCountElement = document.getElementById('faceCount');
     
     // Create performance monitoring object
     const performanceMonitor = {
@@ -23,6 +33,7 @@ export function initPerformanceMonitor(engine, scene, chunkManager) {
         frameTime: 0,
         chunkCount: 0,
         vertexCount: 0,
+        faceCount: 0,
         triangleCount: 0,
         drawCalls: 0,
         
@@ -49,10 +60,11 @@ export function initPerformanceMonitor(engine, scene, chunkManager) {
             // Update terrain stats
             this.chunkCount = chunkManager.getLoadedChunkCount();
             this.vertexCount = chunkManager.getTotalVertexCount();
+            this.faceCount = chunkManager.getTotalFaceCount();
             
-            // Update rendering stats - FIXED: using proper method to calculate triangles
+            // Update rendering stats
             this.triangleCount = scene.getActiveIndices() ? scene.getActiveIndices().length / 3 : 0;
-            this.drawCalls = engine.drawCalls;
+            this.drawCalls = engine._drawCalls?.current || 0;
             
             // Update DOM elements if they exist
             this.updateDOM();
@@ -72,6 +84,10 @@ export function initPerformanceMonitor(engine, scene, chunkManager) {
             
             if (vertexCountElement) {
                 vertexCountElement.textContent = this.formatNumber(this.vertexCount);
+            }
+            
+            if (faceCountElement) {
+                faceCountElement.textContent = this.formatNumber(this.faceCount);
             }
         },
         

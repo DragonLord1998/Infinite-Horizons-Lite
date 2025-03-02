@@ -8,7 +8,8 @@ export default {
         chunkSize: 100,
         
         // Resolution of each chunk (vertices per side)
-        chunkResolution: 128,
+        // REDUCED from 128 to 33 (32 segments) which is much more reasonable
+        chunkResolution: 33,
         
         // Maximum height of terrain
         maxHeight: 50,
@@ -20,7 +21,10 @@ export default {
         loadDistance: 2,
         
         // Distance (in chunks) from camera at which to unload chunks
-        unloadDistance: 4
+        unloadDistance: 4,
+        
+        // Enable adaptive mesh resolution based on distance
+        enableAdaptiveLOD: true
     },
     
     // Noise generation settings
