@@ -1,0 +1,133 @@
+# Infinite Horizons - Troubleshooting Guide
+
+This guide contains solutions for common issues encountered when running the Infinite Horizons application.
+
+## Loading Screen Gets Stuck
+
+If your application gets stuck on the loading screen, try the following steps to diagnose and fix the issue:
+
+### 1. Use the Step-by-Step Debugger
+
+We've created a special debugging tool that breaks down the initialization process into individual steps with delays between them. This helps identify exactly where the application is getting stuck.
+
+To use the step debugger:
+1. Open `step-debug.html` in your browser
+2. Watch the debug panel to see which step fails or hangs
+3. Note the exact step where execution stops
+
+### 2. Common Initialization Issues
+
+#### Babylon.js Engine Creation
+- **Symptom**: Application hangs after "Creating Babylon.js engine"
+- **Possible causes**:
+  - WebGL not fully supported or disabled in your browser
+  - Browser compatibility issues
+- **Solution**: 
+  - Try a different browser (Chrome or Firefox recommended)
+  - Check if hardware acceleration is enabled in your browser settings
+
+#### Shader Compilation
+- **Symptom**: Application loads the shader module but hangs when creating materials
+- **Possible causes**:
+  - Syntax errors in shader code
+  - GLSL version compatibility issues
+  - Shader complexity exceeding hardware limits
+- **Solution**:
+  - Use the fallback material system by setting `useShaderMaterials: false` in `config.js`
+  - Check browser console for specific shader compilation errors
+
+#### Terrain Generation
+- **Symptom**: Application hangs during chunk generation
+- **Possible causes**:
+  - Memory issues with large terrain chunks
+  - Complex heightmap calculations causing timeouts
+- **Solution**:
+  - Reduce `chunkResolution` and `initialChunks` in `config.js`
+  - Try the simplified terrain generation approach
+
+### 3. Quick Fixes
+
+If you're experiencing initialization issues, try these quick fixes:
+
+1. **Clear browser cache**: This ensures you're loading the latest version of all files
+2. **Disable browser extensions**: Some extensions can interfere with WebGL or JavaScript execution
+3. **Reduce terrain complexity**: Edit `config.js` to use smaller values for:
+   ```javascript
+   terrain: {
+     chunkResolution: 17, // Lower resolution (was 33)
+     initialChunks: 1,    // Start with fewer chunks (was 3)
+     loadDistance: 1      // Load chunks closer to camera (was 2)
+   }
+   ```
+4. **Force fallback materials**: Edit `config.js` to disable custom shaders:
+   ```javascript
+   terrain: {
+     useShaderMaterials: false
+   }
+   ```
+
+### 4. Debugging with Browser Tools
+
+To get more detailed information about what's happening:
+
+1. Open browser developer tools (F12 or Ctrl+Shift+I)
+2. Check the Console tab for errors
+3. Look for warnings about WebGL, shader compilation, or out-of-memory issues
+4. If you see specific errors, search for them online or consult the Babylon.js documentation
+
+### 5. Creating a Basic Working Version
+
+If you still encounter issues, you can create a super-simplified version:
+
+1. Use the `simplified-app.js` file as your entry point
+2. This version has:
+   - Minimal dependencies
+   - Simple terrain generation
+   - No chunk system
+   - Basic materials
+   - Explicit logging at each step
+
+## Other Common Issues
+
+### FPS is Very Low
+
+- **Possible causes**:
+  - Too many terrain chunks
+  - Shader complexity
+  - Hardware limitations
+- **Solutions**:
+  - Reduce view distance in `config.js`
+  - Use simpler materials
+  - Increase LOD aggressiveness to reduce detail in distant chunks
+
+### Visual Artifacts at Chunk Boundaries
+
+- **Possible causes**:
+  - Insufficient overlapping in noise generation
+  - Normal calculation issues
+- **Solutions**:
+  - Increase noise overlap in chunking system
+  - Recalculate normals after chunk generation
+
+### Can't See Terrain
+
+- **Possible causes**:
+  - Camera position incorrect
+  - Terrain generation parameters creating flat terrain
+  - Material issues making terrain invisible
+- **Solutions**:
+  - Adjust camera initial position in `config.js`
+  - Increase maxHeight in terrain settings
+  - Check material settings for opacity/visibility issues
+
+## Getting Help
+
+If none of these solutions work, gather the following information to help with debugging:
+
+1. Browser and version
+2. GPU/graphics card information
+3. Screenshots of any errors in the console
+4. Which step in the initialization process is failing
+5. Any changes you've made to the codebase
+
+With this information, you'll be better equipped to troubleshoot the issue or seek help from others.

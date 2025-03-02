@@ -1,36 +1,51 @@
 /**
- * UI Helper functions for Infinite Horizons
+ * Enhanced UI Helper functions for Infinite Horizons (Phase 2)
  */
 import config from '../config.js';
+import { initMaterialUI } from '../ui/materialUI.js';
 
 /**
  * Initialize UI elements
  * @param {BABYLON.Scene} scene - The Babylon.js scene
  * @param {Object} chunkManager - The terrain chunk manager
  * @param {Object} cameraControls - The camera controls
+ * @param {BABYLON.ShaderMaterial} terrainMaterial - The terrain shader material
  * @returns {Object} UI helper object
  */
-export function initUI(scene, chunkManager, cameraControls) {
+export function initUI(scene, chunkManager, cameraControls, terrainMaterial) {
     // Create help overlay
     const helpOverlay = createHelpOverlay();
     
     // Create minimap
     const minimap = createMinimap(scene, chunkManager);
     
+    // Initialize material UI (new in Phase 2)
+    const materialUI = terrainMaterial ? initMaterialUI(scene, terrainMaterial) : null;
+    
+    // Create FPS display (enhanced in Phase 2)
+    const fpsDisplay = createFPSDisplay(scene.getEngine());
+    
     // Track UI state
     const uiState = {
         helpVisible: false,
-        minimapVisible: true
+        minimapVisible: true,
+        fpsVisible: true,
+        materialUIVisible: false
     };
     
     // Set up keyboard shortcuts
-    setupKeyboardShortcuts(scene, uiState, helpOverlay, minimap, cameraControls);
+    setupKeyboardShortcuts(scene, uiState, helpOverlay, minimap, fpsDisplay, materialUI, cameraControls);
     
     return {
         // Show/hide help overlay
         toggleHelp() {
             uiState.helpVisible = !uiState.helpVisible;
             helpOverlay.style.display = uiState.helpVisible ? 'block' : 'none';
+            
+            // Disable camera controls when help is visible
+            if (cameraControls && cameraControls.setMouseControlsEnabled) {
+                cameraControls.setMouseControlsEnabled(!uiState.helpVisible);
+            }
         },
         
         // Show/hide minimap
@@ -39,17 +54,38 @@ export function initUI(scene, chunkManager, cameraControls) {
             minimap.container.style.display = uiState.minimapVisible ? 'block' : 'none';
         },
         
+        // Show/hide FPS display
+        toggleFPS() {
+            uiState.fpsVisible = !uiState.fpsVisible;
+            fpsDisplay.style.display = uiState.fpsVisible ? 'block' : 'none';
+        },
+        
+        // Show/hide material UI
+        toggleMaterialUI() {
+            if (materialUI) {
+                materialUI.toggleUI();
+                uiState.materialUIVisible = !uiState.materialUIVisible;
+            }
+        },
+        
         // Update minimap
         updateMinimap(cameraX, cameraZ) {
             if (uiState.minimapVisible) {
                 updateMinimapPosition(minimap, cameraX, cameraZ, chunkManager);
+            }
+        },
+        
+        // Update all UI elements
+        update() {
+            if (uiState.fpsVisible) {
+                updateFPSDisplay(fpsDisplay, scene.getEngine());
             }
         }
     };
 }
 
 /**
- * Create help overlay
+ * Create help overlay with updated controls (Phase 2)
  * @returns {HTMLElement} The created help overlay element
  */
 function createHelpOverlay() {
@@ -72,18 +108,31 @@ function createHelpOverlay() {
     // Add help content
     helpOverlay.innerHTML = `
         <h2 style="text-align: center; margin-top: 0;">Infinite Horizons Controls</h2>
+        <h3 style="margin-top: 15px;">Movement Controls</h3>
         <ul style="list-style-type: none; padding-left: 0;">
             <li><strong>W, A, S, D:</strong> Move camera forward, left, backward, right</li>
-            <li><strong>Space / Shift:</strong> Move camera up / down</li>
+            <li><strong>Space / Shift:</strong> Move up / down (flight mode) or jump (walking mode)</li>
             <li><strong>Mouse:</strong> Look around</li>
             <li><strong>Alt:</strong> Sprint (2x speed)</li>
             <li><strong>Ctrl:</strong> Slow movement (0.5x speed)</li>
+            <li><strong>F:</strong> Toggle between flight and walking modes</li>
+        </ul>
+        
+        <h3 style="margin-top: 15px;">UI Controls</h3>
+        <ul style="list-style-type: none; padding-left: 0;">
             <li><strong>H:</strong> Toggle this help overlay</li>
             <li><strong>M:</strong> Toggle minimap</li>
+            <li><strong>P:</strong> Toggle FPS display</li>
+            <li><strong>Alt+M:</strong> Toggle material editor</li>
             <li><strong>R:</strong> Reset camera position</li>
-            <li><strong>F:</strong> Toggle wireframe view</li>
             <li><strong>Ctrl+Shift+I:</strong> Toggle Babylon.js Inspector</li>
         </ul>
+        
+        <h3 style="margin-top: 15px;">View Options</h3>
+        <ul style="list-style-type: none; padding-left: 0;">
+            <li><strong>G:</strong> Toggle wireframe view</li>
+        </ul>
+        
         <div style="text-align: center; margin-top: 20px;">
             <small>Press H to close this overlay</small>
         </div>
@@ -158,6 +207,51 @@ function createMinimap(scene, chunkManager) {
 }
 
 /**
+ * Create FPS display
+ * @param {BABYLON.Engine} engine - The Babylon.js engine
+ * @returns {HTMLElement} FPS display element
+ */
+function createFPSDisplay(engine) {
+    const fpsDisplay = document.createElement('div');
+    fpsDisplay.id = 'fpsDisplay';
+    fpsDisplay.style.position = 'absolute';
+    fpsDisplay.style.top = '10px';
+    fpsDisplay.style.left = '10px';
+    fpsDisplay.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
+    fpsDisplay.style.color = 'white';
+    fpsDisplay.style.padding = '5px 10px';
+    fpsDisplay.style.borderRadius = '3px';
+    fpsDisplay.style.fontFamily = 'monospace';
+    fpsDisplay.style.fontSize = '14px';
+    fpsDisplay.style.zIndex = '100';
+    
+    document.body.appendChild(fpsDisplay);
+    
+    return fpsDisplay;
+}
+
+/**
+ * Update FPS display
+ * @param {HTMLElement} fpsDisplay - FPS display element
+ * @param {BABYLON.Engine} engine - The Babylon.js engine
+ */
+function updateFPSDisplay(fpsDisplay, engine) {
+    const fps = Math.round(engine.getFps());
+    
+    // Color code based on performance
+    let color;
+    if (fps >= 50) {
+        color = '#00FF00'; // Green for good
+    } else if (fps >= 30) {
+        color = '#FFFF00'; // Yellow for moderate
+    } else {
+        color = '#FF0000'; // Red for bad
+    }
+    
+    fpsDisplay.innerHTML = `FPS: <span style="color: ${color}">${fps}</span>`;
+}
+
+/**
  * Render the minimap
  * @param {CanvasRenderingContext2D} ctx - Canvas context
  * @param {Object} chunkManager - The terrain chunk manager
@@ -167,8 +261,12 @@ function renderMinimap(ctx, chunkManager) {
     const width = ctx.canvas.width;
     const height = ctx.canvas.height;
     
-    // Clear canvas
-    ctx.fillStyle = 'rgb(100, 150, 255)';
+    // Clear canvas with gradient background
+    const gradient = ctx.createLinearGradient(0, 0, 0, height);
+    gradient.addColorStop(0, 'rgba(100, 150, 255, 0.7)');
+    gradient.addColorStop(1, 'rgba(50, 100, 150, 0.7)');
+    
+    ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, width, height);
     
     // Get all loaded chunks
@@ -188,8 +286,14 @@ function renderMinimap(ctx, chunkManager) {
         const posX = centerX + chunkX * chunkSize;
         const posY = centerY + chunkZ * chunkSize;
         
+        // Get LOD level if available
+        const lodLevel = mesh.lodLevel !== undefined ? mesh.lodLevel : 0;
+        
+        // Color based on LOD level (darker green for higher detail)
+        const lodAlpha = 0.8 - (lodLevel * 0.15);
+        ctx.fillStyle = `rgba(50, 100, 50, ${lodAlpha})`;
+        
         // Draw chunk square
-        ctx.fillStyle = 'rgb(50, 100, 50)';
         ctx.fillRect(
             posX - chunkSize / 2, 
             posY - chunkSize / 2, 
@@ -198,7 +302,7 @@ function renderMinimap(ctx, chunkManager) {
         );
         
         // Draw chunk outline
-        ctx.strokeStyle = 'rgb(30, 60, 30)';
+        ctx.strokeStyle = 'rgba(30, 60, 30, 0.7)';
         ctx.lineWidth = 1;
         ctx.strokeRect(
             posX - chunkSize / 2, 
@@ -234,6 +338,61 @@ function renderMinimap(ctx, chunkManager) {
     ctx.lineTo(centerX, height);
     ctx.moveTo(0, centerY);
     ctx.lineTo(width, centerY);
+    ctx.stroke();
+    
+    // Draw compass
+    drawCompass(ctx, width - 35, 35, 25);
+}
+
+/**
+ * Draw a compass on the minimap
+ * @param {CanvasRenderingContext2D} ctx - Canvas context
+ * @param {number} x - X position
+ * @param {number} y - Y position
+ * @param {number} radius - Compass radius
+ */
+function drawCompass(ctx, x, y, radius) {
+    // Draw compass circle
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    
+    // Draw N, S, E, W markers
+    ctx.fillStyle = 'white';
+    ctx.font = '12px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    
+    // North
+    ctx.fillText('N', x, y - radius + 10);
+    // South
+    ctx.fillText('S', x, y + radius - 10);
+    // East
+    ctx.fillText('E', x + radius - 10, y);
+    // West
+    ctx.fillText('W', x - radius + 10, y);
+    
+    // Draw compass needle
+    ctx.beginPath();
+    ctx.moveTo(x, y - radius + 5);
+    ctx.lineTo(x - 5, y);
+    ctx.lineTo(x, y + radius - 5);
+    ctx.lineTo(x + 5, y);
+    ctx.closePath();
+    
+    // Red for North
+    const needleGradient = ctx.createLinearGradient(x, y - radius, x, y + radius);
+    needleGradient.addColorStop(0, 'red');
+    needleGradient.addColorStop(1, 'white');
+    
+    ctx.fillStyle = needleGradient;
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.5)';
+    ctx.lineWidth = 1;
     ctx.stroke();
 }
 
@@ -282,28 +441,46 @@ function updateMinimapPosition(minimap, cameraX, cameraZ, chunkManager) {
  * @param {Object} uiState - UI state object
  * @param {HTMLElement} helpOverlay - Help overlay element
  * @param {Object} minimap - Minimap object
+ * @param {HTMLElement} fpsDisplay - FPS display element
+ * @param {Object} materialUI - Material UI object
  * @param {Object} cameraControls - Camera controls object
  */
-function setupKeyboardShortcuts(scene, uiState, helpOverlay, minimap, cameraControls) {
+function setupKeyboardShortcuts(scene, uiState, helpOverlay, minimap, fpsDisplay, materialUI, cameraControls) {
     // Set up keyboard shortcut handler
     window.addEventListener('keydown', (event) => {
         // Toggle help overlay on H key
-        if (event.code === 'KeyH') {
+        if (event.code === 'KeyH' && !event.altKey && !event.ctrlKey && !event.shiftKey) {
             uiState.helpVisible = !uiState.helpVisible;
             helpOverlay.style.display = uiState.helpVisible ? 'block' : 'none';
             
             // Disable camera controls when help is visible
-            cameraControls.setMouseControlsEnabled(!uiState.helpVisible);
+            if (cameraControls && cameraControls.setMouseControlsEnabled) {
+                cameraControls.setMouseControlsEnabled(!uiState.helpVisible);
+            }
         }
         
         // Toggle minimap on M key
-        if (event.code === 'KeyM') {
+        if (event.code === 'KeyM' && !event.altKey && !event.ctrlKey && !event.shiftKey) {
             uiState.minimapVisible = !uiState.minimapVisible;
             minimap.container.style.display = uiState.minimapVisible ? 'block' : 'none';
         }
         
+        // Toggle FPS display on P key
+        if (event.code === 'KeyP' && !event.altKey && !event.ctrlKey && !event.shiftKey) {
+            uiState.fpsVisible = !uiState.fpsVisible;
+            fpsDisplay.style.display = uiState.fpsVisible ? 'block' : 'none';
+        }
+        
+        // Toggle material UI on Alt+M
+        if (event.code === 'KeyM' && event.altKey && !event.ctrlKey && !event.shiftKey) {
+            if (materialUI) {
+                materialUI.toggleUI();
+                uiState.materialUIVisible = !uiState.materialUIVisible;
+            }
+        }
+        
         // Reset camera position on R key
-        if (event.code === 'KeyR') {
+        if (event.code === 'KeyR' && !event.altKey && !event.ctrlKey && !event.shiftKey) {
             const camera = scene.activeCamera;
             if (camera) {
                 camera.position = new BABYLON.Vector3(
@@ -315,8 +492,8 @@ function setupKeyboardShortcuts(scene, uiState, helpOverlay, minimap, cameraCont
             }
         }
         
-        // Toggle wireframe on F key
-        if (event.code === 'KeyF') {
+        // Toggle wireframe on G key
+        if (event.code === 'KeyG' && !event.altKey && !event.ctrlKey && !event.shiftKey) {
             scene.meshes.forEach(mesh => {
                 if (mesh.name.startsWith('terrain_')) {
                     mesh.material.wireframe = !mesh.material.wireframe;

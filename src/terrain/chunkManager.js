@@ -1,26 +1,27 @@
 /**
- * Enhanced chunk management with optimized face count and LOD support
+ * Modified chunk management with standard materials - Fixed import path
  */
 import config from '../config.js';
 import { createHeightmapGenerator } from './heightmap.js';
 import { createTerrainMeshBuilder } from './meshBuilder.js';
-import { createTerrainMaterial } from '../materials/terrainMaterial.js';
+import { createTerrainMaterial, applyVertexColors } from '../materials/terrainMaterial.js';
 
 /**
  * Initializes the chunk manager for terrain
  * @param {BABYLON.Scene} scene - The Babylon.js scene
  * @param {BABYLON.Camera} camera - The camera for position tracking
+ * @param {BABYLON.Material} [customMaterial=null] - Optional custom material
  * @returns {Object} Chunk manager object
  */
-export function initChunkManager(scene, camera) {
+export function initChunkManager(scene, camera, customMaterial = null) {
     // Create heightmap generator
     const heightmapGenerator = createHeightmapGenerator(config.noise);
     
     // Create terrain mesh builder
     const terrainMeshBuilder = createTerrainMeshBuilder(scene);
     
-    // Create terrain material
-    const terrainMaterial = createTerrainMaterial(scene);
+    // Create or use provided terrain material
+    const terrainMaterial = customMaterial || createTerrainMaterial(scene);
     
     // Store loaded chunks
     const loadedChunks = new Map();
@@ -208,8 +209,10 @@ export function initChunkManager(scene, camera) {
                 
                 // Check if mesh needs LOD update
                 if (mesh.lodLevel !== optimalLOD) {
-                    // Recreate mesh with new LOD level
-                    this.updateChunkLODLevel(chunkKey, x, z, optimalLOD);
+                    // Only update if the difference is significant
+                    if (Math.abs(mesh.lodLevel - optimalLOD) >= 2) {
+                        this.updateChunkLODLevel(chunkKey, x, z, optimalLOD);
+                    }
                 }
                 
                 // Update visibility based on frustum
@@ -231,11 +234,6 @@ export function initChunkManager(scene, camera) {
             
             // Skip if mesh doesn't exist or already has the target LOD level
             if (!existingMesh || existingMesh.lodLevel === newLODLevel) {
-                return;
-            }
-            
-            // Only update if the difference is significant (to avoid constant swapping)
-            if (Math.abs(existingMesh.lodLevel - newLODLevel) < 2) {
                 return;
             }
             
@@ -276,6 +274,11 @@ export function initChunkManager(scene, camera) {
             const terrainMesh = terrainMeshBuilder.createTerrainMesh(
                 heightmapData, terrainMaterial, lodLevel
             );
+            
+            // Apply vertex colors to the mesh
+            if (terrainMaterial instanceof BABYLON.PBRMaterial && terrainMaterial.useVertexColors) {
+                applyVertexColors(terrainMesh, maxHeight);
+            }
             
             // If this is a LOD update, remove the existing mesh
             if (isLODUpdate && existingMesh) {
