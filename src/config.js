@@ -1,5 +1,6 @@
 /**
- * Global configuration settings for Infinite Horizons (Phase 2)
+ * Global configuration settings for Infinite Horizons
+ * Updated for better terrain generation
  */
 export default {
     // Terrain generation settings
@@ -7,12 +8,11 @@ export default {
         // Size of each chunk in world units
         chunkSize: 100,
 
-        //useShaderMaterials: false,
         // Resolution of each chunk (vertices per side)
         chunkResolution: 33,
         
         // Maximum height of terrain
-        maxHeight: 50,
+        maxHeight: 60, // Increased for more dramatic terrain
         
         // Number of chunks to load initially (as NxN grid)
         initialChunks: 3,
@@ -27,24 +27,24 @@ export default {
         enableAdaptiveLOD: true,
         
         // Use enhanced shader-based materials
-        useShaderMaterials: true
+        useShaderMaterials: false
     },
     
     // Noise generation settings
     noise: {
         // Base noise scale (higher = more zoomed in)
-        scale: 0.01,
+        scale: 0.005, // Decreased from 0.01 for larger features
         
         // Number of octaves for fractal noise
-        octaves: 5, // Increased for more detail in Phase 2
+        octaves: 6, // Increased from 4
         
         // Persistence factor for each octave (amplitude multiplier)
-        persistence: 0.5,
+        persistence: 0.65, // Increased from 0.5 for more variation
         
         // Lacunarity factor for each octave (frequency multiplier)
-        lacunarity: 2.0,
+        lacunarity: 2.2, // Adjusted from 2.0
         
-        // Random seed for noise generation
+        // Random seed for noise generation (42 is the answer!)
         seed: 42
     },
     
@@ -69,7 +69,7 @@ export default {
         walkingHeight: 2.0
     },
     
-    // Material settings (new in Phase 2)
+    // Material settings
     materials: {
         // Grass material settings
         grass: {
@@ -105,7 +105,25 @@ export default {
         statsUpdateInterval: 1000,
         
         // Enable shader optimization
-        optimizeShaders: true
+        optimizeShaders: true,
+        
+        // Enable adaptive performance adjustments
+        enableAdaptivePerformance: true,
+        
+        // FPS threshold for performance adjustments
+        fpsThreshold: 30,
+        
+        // Interval for adaptive performance checks (ms)
+        adaptiveCheckInterval: 2000,
+        
+        // Maximum number of visible chunks at once
+        maxVisibleChunks: 32,
+        
+        // Frame skipping for chunk updates (update every N frames)
+        skipFrames: 2,
+        
+        // Enable frustum culling for performance
+        frustumCullingEnabled: true
     },
     
     // Debug settings
@@ -120,6 +138,9 @@ export default {
         showWireframe: false,
         
         // Log shader compilation
-        logShaders: false
+        logShaders: false,
+        
+        // Show debug height visualization
+        showHeightColors: false
     }
 };

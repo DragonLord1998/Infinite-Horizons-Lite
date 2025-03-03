@@ -1,5 +1,6 @@
 /**
- * Modified chunk management with standard materials - Fixed import path
+ * Modified chunk management for seamless transitions
+ * Improved for better chunk stitching and performance
  */
 import config from '../config.js';
 import { createHeightmapGenerator } from './heightmap.js';
@@ -36,12 +37,25 @@ export function initChunkManager(scene, camera, customMaterial = null) {
     // Last time chunk LOD was updated
     let lastLODUpdateTime = 0;
     
+    // Frame counter for skipping updates
+    let frameCount = 0;
+    
     // Create chunk manager object
     const chunkManager = {
         /**
          * Update chunks based on camera position
          */
         update() {
+            // Increment frame counter and skip processing if needed for performance
+            frameCount++;
+            if (config.performance && config.performance.skipFrames && 
+                frameCount % config.performance.skipFrames !== 0) {
+                return;
+            }
+            
+            // Reset frame counter after processing
+            frameCount = 0;
+            
             // Get camera position
             const cameraPosition = camera.position;
             
@@ -92,8 +106,8 @@ export function initChunkManager(scene, camera, customMaterial = null) {
                     
                     // Check if chunk is already loaded or in progress
                     if (!loadedChunks.has(chunkKey) && !chunksInProgress.has(chunkKey)) {
-                        // Calculate distance from camera chunk (Manhattan distance)
-                        const distance = Math.abs(x - centerX) + Math.abs(z - centerZ);
+                        // Calculate distance from camera chunk (Chebyshev distance for circular load area)
+                        const distance = Math.max(Math.abs(x - centerX), Math.abs(z - centerZ));
                         
                         // Calculate LOD level based on distance
                         const lodLevel = this.calculateLODLevelForDistance(distance);
@@ -113,10 +127,27 @@ export function initChunkManager(scene, camera, customMaterial = null) {
             // Sort by distance (closest first)
             chunkQueue.sort((a, b) => a.distance - b.distance);
             
+            // Limit max chunks to load at once for performance
+            const maxVisibleChunks = config.performance && config.performance.maxVisibleChunks 
+                ? config.performance.maxVisibleChunks 
+                : 30;
+                
+            // If we're already at the max chunks, don't load more
+            const visibleChunkCount = loadedChunks.size;
+            if (visibleChunkCount >= maxVisibleChunks) {
+                const excessChunks = visibleChunkCount - maxVisibleChunks + 5; // Add a buffer
+                if (excessChunks > 0) {
+                    // Force immediate unload of excess distant chunks
+                    this.unloadFurthestChunks(centerX, centerZ, excessChunks);
+                }
+            }
+            
             // Load chunks with a small delay between each to prevent freezing
             let index = 0;
+            const maxToLoad = Math.min(chunkQueue.length, maxVisibleChunks - visibleChunkCount);
+            
             const loadNextChunk = () => {
-                if (index < chunkQueue.length) {
+                if (index < maxToLoad) {
                     const chunk = chunkQueue[index++];
                     this.loadChunk(chunk.x, chunk.z, chunk.lodLevel);
                     
@@ -145,11 +176,11 @@ export function initChunkManager(scene, camera, customMaterial = null) {
                 return 0;
             }
             // LOD 1 for chunks at distance 2-3
-            else if (distance <= 3) {
+            else if (distance <= 2) {
                 return 1;
             }
-            // LOD 2 for chunks at distance 4-6
-            else if (distance <= 6) {
+            // LOD 2 for chunks at distance 3-4
+            else if (distance <= 3) {
                 return 2;
             }
             // LOD 3 (lowest detail) for distant chunks
@@ -172,13 +203,45 @@ export function initChunkManager(scene, camera, customMaterial = null) {
                 // Parse chunk coordinates from key
                 const [x, z] = chunkKey.split('_').map(Number);
                 
-                // Calculate distance in chunks (Manhattan distance)
-                const distance = Math.abs(x - centerX) + Math.abs(z - centerZ);
+                // Calculate distance in chunks (Chebyshev distance)
+                const distance = Math.max(Math.abs(x - centerX), Math.abs(z - centerZ));
                 
                 // Unload if too far away
                 if (distance > unloadDistance) {
                     this.unloadChunk(chunkKey);
                 }
+            }
+        },
+        
+        /**
+         * Unload furthest chunks to maintain performance
+         * @param {number} centerX - Center chunk X coordinate
+         * @param {number} centerZ - Center chunk Z coordinate
+         * @param {number} count - Number of chunks to unload
+         */
+        unloadFurthestChunks(centerX, centerZ, count) {
+            // Create array of chunks with distances
+            const chunksWithDistances = [];
+            
+            for (const [chunkKey, chunk] of loadedChunks.entries()) {
+                // Parse chunk coordinates from key
+                const [x, z] = chunkKey.split('_').map(Number);
+                
+                // Calculate distance in chunks (Chebyshev distance)
+                const distance = Math.max(Math.abs(x - centerX), Math.abs(z - centerZ));
+                
+                chunksWithDistances.push({
+                    key: chunkKey,
+                    distance: distance
+                });
+            }
+            
+            // Sort by distance (furthest first)
+            chunksWithDistances.sort((a, b) => b.distance - a.distance);
+            
+            // Unload the furthest chunks
+            for (let i = 0; i < Math.min(count, chunksWithDistances.length); i++) {
+                this.unloadChunk(chunksWithDistances[i].key);
             }
         },
         
@@ -201,8 +264,8 @@ export function initChunkManager(scene, camera, customMaterial = null) {
                 // Parse chunk coordinates from key
                 const [x, z] = chunkKey.split('_').map(Number);
                 
-                // Calculate distance from camera in chunks (Manhattan distance)
-                const distance = Math.abs(x - cameraChunkX) + Math.abs(z - cameraChunkZ);
+                // Calculate distance from camera in chunks (Chebyshev distance)
+                const distance = Math.max(Math.abs(x - cameraChunkX), Math.abs(z - cameraChunkZ));
                 
                 // Calculate optimal LOD level
                 const optimalLOD = this.calculateLODLevelForDistance(distance);
@@ -216,8 +279,10 @@ export function initChunkManager(scene, camera, customMaterial = null) {
                 }
                 
                 // Update visibility based on frustum
-                const inFrustum = camera.isInFrustum(mesh);
-                mesh.isVisible = inFrustum;
+                if (config.performance.frustumCullingEnabled) {
+                    const inFrustum = camera.isInFrustum(mesh);
+                    mesh.isVisible = inFrustum;
+                }
             }
         },
         
@@ -265,36 +330,169 @@ export function initChunkManager(scene, camera, customMaterial = null) {
             // Mark chunk as in progress
             chunksInProgress.add(chunkKey);
             
-            // Generate heightmap data
-            const heightmapData = heightmapGenerator.generateHeightmapForChunk(
-                chunkX, chunkZ, chunkSize, chunkResolution, maxHeight
-            );
+            try {
+                // Generate heightmap data
+                const heightmapData = heightmapGenerator.generateHeightmapForChunk(
+                    chunkX, chunkZ, chunkSize, chunkResolution, maxHeight
+                );
+                
+                // Get neighboring chunks for edge matching if they exist
+                const neighbors = {
+                    north: loadedChunks.get(`${chunkX}_${chunkZ+1}`),
+                    south: loadedChunks.get(`${chunkX}_${chunkZ-1}`),
+                    east: loadedChunks.get(`${chunkX+1}_${chunkZ}`),
+                    west: loadedChunks.get(`${chunkX-1}_${chunkZ}`)
+                };
+                
+                // Match edges with existing neighbors for perfect seams
+                if (Object.values(neighbors).some(n => n)) {
+                    this.matchChunkEdges(heightmapData, neighbors);
+                }
+                
+                // Create terrain mesh with LOD
+                const terrainMesh = terrainMeshBuilder.createTerrainMesh(
+                    heightmapData, terrainMaterial, lodLevel
+                );
+                
+                // Store heightmap data on the mesh for neighbor matching
+                terrainMesh.heightData = heightmapData.heights;
+                terrainMesh.chunkX = chunkX;
+                terrainMesh.chunkZ = chunkZ;
+                terrainMesh.lodLevel = lodLevel;
+                
+                // Apply vertex colors to the mesh
+                if (terrainMaterial instanceof BABYLON.PBRMaterial && terrainMaterial.useVertexColors) {
+                    applyVertexColors(terrainMesh, maxHeight);
+                }
+                
+                // If this is a LOD update, remove the existing mesh
+                if (isLODUpdate && existingMesh) {
+                    existingMesh.dispose();
+                }
+                
+                // Store the mesh in loaded chunks
+                loadedChunks.set(chunkKey, terrainMesh);
+                
+                // Remove from in-progress chunks
+                chunksInProgress.delete(chunkKey);
+                
+                console.log(`Loaded chunk ${chunkKey} with LOD ${lodLevel}`);
+                
+                return terrainMesh;
+            } catch (error) {
+                console.error(`Error loading chunk ${chunkKey}:`, error);
+                chunksInProgress.delete(chunkKey);
+                return null;
+            }
+        },
+        
+        /**
+         * Match chunk edges with neighbors for seamless transitions
+         * @param {Object} heightmapData - Heightmap data
+         * @param {Object} neighbors - Neighboring chunks
+         */
+        matchChunkEdges(heightmapData, neighbors) {
+            const { heights, resolution } = heightmapData;
             
-            // Create terrain mesh with LOD
-            const terrainMesh = terrainMeshBuilder.createTerrainMesh(
-                heightmapData, terrainMaterial, lodLevel
-            );
+            // Blend factor for smooth transitions (0.5 = average)
+            const BLEND_FACTOR = 0.5;
             
-            // Apply vertex colors to the mesh
-            if (terrainMaterial instanceof BABYLON.PBRMaterial && terrainMaterial.useVertexColors) {
-                applyVertexColors(terrainMesh, maxHeight);
+            // Match north edge if neighbor exists
+            if (neighbors.north && neighbors.north.heightData) {
+                const northHeights = neighbors.north.heightData;
+                for (let x = 0; x < resolution; x++) {
+                    // Blend heights at boundary 
+                    const northIdx = x;
+                    const thisIdx = (resolution - 1) * resolution + x;
+                    
+                    // Smooth blend between this chunk and neighbor
+                    heights[thisIdx] = heights[thisIdx] * (1-BLEND_FACTOR) + 
+                                     northHeights[northIdx] * BLEND_FACTOR;
+                }
             }
             
-            // If this is a LOD update, remove the existing mesh
-            if (isLODUpdate && existingMesh) {
-                existingMesh.dispose();
+            // Match south edge if neighbor exists
+            if (neighbors.south && neighbors.south.heightData) {
+                const southHeights = neighbors.south.heightData;
+                for (let x = 0; x < resolution; x++) {
+                    // Blend heights at boundary
+                    const southIdx = (resolution - 1) * resolution + x;
+                    const thisIdx = x;
+                    
+                    // Smooth blend
+                    heights[thisIdx] = heights[thisIdx] * (1-BLEND_FACTOR) + 
+                                     southHeights[southIdx] * BLEND_FACTOR;
+                }
             }
             
-            // Store the mesh in loaded chunks
-            loadedChunks.set(chunkKey, terrainMesh);
+            // Match east edge if neighbor exists
+            if (neighbors.east && neighbors.east.heightData) {
+                const eastHeights = neighbors.east.heightData;
+                for (let z = 0; z < resolution; z++) {
+                    // Blend heights at boundary
+                    const eastIdx = z * resolution;
+                    const thisIdx = z * resolution + (resolution - 1);
+                    
+                    // Smooth blend
+                    heights[thisIdx] = heights[thisIdx] * (1-BLEND_FACTOR) + 
+                                     eastHeights[eastIdx] * BLEND_FACTOR;
+                }
+            }
             
-            // Remove from in-progress chunks
-            chunksInProgress.delete(chunkKey);
+            // Match west edge if neighbor exists
+            if (neighbors.west && neighbors.west.heightData) {
+                const westHeights = neighbors.west.heightData;
+                for (let z = 0; z < resolution; z++) {
+                    // Blend heights at boundary
+                    const westIdx = z * resolution + (resolution - 1);
+                    const thisIdx = z * resolution;
+                    
+                    // Smooth blend
+                    heights[thisIdx] = heights[thisIdx] * (1-BLEND_FACTOR) + 
+                                     westHeights[westIdx] * BLEND_FACTOR;
+                }
+            }
             
-            // Log with LOD level
-            console.log(`Loaded chunk ${chunkKey} with LOD ${lodLevel}`);
+            // Extra smoothing for corner vertices
+            if (neighbors.north && neighbors.north.heightData && 
+                neighbors.east && neighbors.east.heightData) {
+                // Northeast corner
+                const neCornerIdx = (resolution - 1) * resolution + (resolution - 1);
+                const northeastHeight = (heights[neCornerIdx] + 
+                                       neighbors.north.heightData[resolution - 1] + 
+                                       neighbors.east.heightData[(resolution - 1) * resolution]) / 3;
+                heights[neCornerIdx] = northeastHeight;
+            }
             
-            return terrainMesh;
+            if (neighbors.north && neighbors.north.heightData && 
+                neighbors.west && neighbors.west.heightData) {
+                // Northwest corner
+                const nwCornerIdx = (resolution - 1) * resolution;
+                const northwestHeight = (heights[nwCornerIdx] + 
+                                       neighbors.north.heightData[0] + 
+                                       neighbors.west.heightData[(resolution - 1) * resolution + (resolution - 1)]) / 3;
+                heights[nwCornerIdx] = northwestHeight;
+            }
+            
+            if (neighbors.south && neighbors.south.heightData && 
+                neighbors.east && neighbors.east.heightData) {
+                // Southeast corner
+                const seCornerIdx = resolution - 1;
+                const southeastHeight = (heights[seCornerIdx] + 
+                                       neighbors.south.heightData[(resolution - 1) * resolution + (resolution - 1)] + 
+                                       neighbors.east.heightData[0]) / 3;
+                heights[seCornerIdx] = southeastHeight;
+            }
+            
+            if (neighbors.south && neighbors.south.heightData && 
+                neighbors.west && neighbors.west.heightData) {
+                // Southwest corner
+                const swCornerIdx = 0;
+                const southwestHeight = (heights[swCornerIdx] + 
+                                       neighbors.south.heightData[(resolution - 1) * resolution] + 
+                                       neighbors.west.heightData[resolution - 1]) / 3;
+                heights[swCornerIdx] = southwestHeight;
+            }
         },
         
         /**
@@ -328,7 +526,7 @@ export function initChunkManager(scene, camera, customMaterial = null) {
             for (let z = -halfSize; z <= halfSize; z++) {
                 for (let x = -halfSize; x <= halfSize; x++) {
                     // Calculate distance from center
-                    const distance = Math.abs(x) + Math.abs(z);
+                    const distance = Math.max(Math.abs(x), Math.abs(z));
                     
                     // Calculate LOD level based on distance
                     const lodLevel = this.calculateLODLevelForDistance(distance);

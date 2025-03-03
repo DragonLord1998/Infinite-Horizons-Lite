@@ -11,6 +11,8 @@ import config from '../config.js';
  * @returns {Object} Camera controls object
  */
 export function setupEnhancedCameraControls(scene, camera, chunkManager) {
+    console.log("[Controls] Setting up enhanced camera controls");
+    
     // Track key states
     const keyState = {
         forward: false,   // W
@@ -40,7 +42,7 @@ export function setupEnhancedCameraControls(scene, camera, chunkManager) {
     // Current control state
     const controlState = {
         mode: controlModes.FLIGHT,          // Default mode
-        height: 10,                         // Default height above terrain in walking mode
+        height: 2.0,                         // Default height above terrain in walking mode
         velocity: new BABYLON.Vector3(),    // Current velocity vector for smooth movement
         maxVelocity: config.camera.moveSpeed, // Maximum velocity
         acceleration: 0.08,                 // Acceleration factor (0-1)
@@ -50,7 +52,9 @@ export function setupEnhancedCameraControls(scene, camera, chunkManager) {
         isJumping: false,                   // Whether currently jumping
         gravity: 0.01,                      // Gravity strength
         collisionPadding: 2.0,              // Padding for collision detection
-        adaptToTerrainSpeed: 0.1            // Speed at which camera adapts to terrain (0-1)
+        adaptToTerrainSpeed: 0.3,           // Speed at which camera adapts to terrain (0-1) - increased for more responsiveness
+        lastTerrainY: null,                 // Store last terrain height for debugging
+        debug: true                         // Enable debugging
     };
     
     // Get the canvas
@@ -70,6 +74,22 @@ export function setupEnhancedCameraControls(scene, camera, chunkManager) {
         updateCamera(camera, keyState, mouseState, controlState, chunkManager);
     });
     
+    // Debug info display for walking mode
+    let debugElement = null;
+    if (controlState.debug) {
+        debugElement = document.createElement('div');
+        debugElement.style.position = 'absolute';
+        debugElement.style.bottom = '50px';
+        debugElement.style.left = '10px';
+        debugElement.style.backgroundColor = 'rgba(0,0,0,0.7)';
+        debugElement.style.color = 'white';
+        debugElement.style.padding = '5px 10px';
+        debugElement.style.fontFamily = 'monospace';
+        debugElement.style.fontSize = '12px';
+        debugElement.style.zIndex = '1000';
+        document.body.appendChild(debugElement);
+    }
+    
     // Return camera controls object
     return {
         keyState,
@@ -84,6 +104,7 @@ export function setupEnhancedCameraControls(scene, camera, chunkManager) {
         setMode(mode) {
             if (mode === controlModes.FLIGHT || mode === controlModes.WALKING) {
                 controlState.mode = mode;
+                console.log(`[Controls] Mode changed to: ${mode}`);
                 updateModeIndicator(modeIndicator, controlState);
             }
         },
@@ -94,9 +115,22 @@ export function setupEnhancedCameraControls(scene, camera, chunkManager) {
         toggleMode() {
             if (controlState.mode === controlModes.FLIGHT) {
                 controlState.mode = controlModes.WALKING;
+                
+                // When switching to walking mode, immediately position at correct height
+                const groundHeight = chunkManager.getHeightAtPosition(
+                    camera.position.x, 
+                    camera.position.z
+                );
+                
+                if (!isNaN(groundHeight)) {
+                    controlState.lastGroundHeight = groundHeight;
+                    camera.position.y = groundHeight + controlState.height;
+                    controlState.velocity.y = 0;
+                }
             } else {
                 controlState.mode = controlModes.FLIGHT;
             }
+            console.log(`[Controls] Toggled mode to: ${controlState.mode}`);
             updateModeIndicator(modeIndicator, controlState);
         },
         
@@ -135,6 +169,13 @@ export function setupEnhancedCameraControls(scene, camera, chunkManager) {
                     console.warn('Error exiting pointer lock:', error);
                 }
             }
+        },
+        
+        /**
+         * Get debug element for updating
+         */
+        getDebugElement() {
+            return debugElement;
         }
     };
 }
@@ -200,6 +241,7 @@ function setupKeyboardInput(keyState, controlState, controlModes, canvas) {
                 } else {
                     controlState.mode = controlModes.FLIGHT;
                 }
+                console.log(`[Controls] Mode changed to: ${controlState.mode}`);
                 break;
         }
     });
@@ -383,9 +425,6 @@ function updateCamera(camera, keyState, mouseState, controlState, chunkManager) 
         // In flight mode, space/shift directly control height
         if (keyState.up) movementDirection.addInPlace(upVector);
         if (keyState.down) movementDirection.subtractInPlace(upVector);
-        
-        // In flight mode, zero out Y component of forward/backward movement to keep movement aligned with view
-        // This line is removed to allow full 3D flight
     } else {
         // In walking mode, zero out Y component of forward/right movement for pure horizontal movement
         forwardVector.y = 0;
@@ -430,15 +469,48 @@ function updateCamera(camera, keyState, mouseState, controlState, chunkManager) 
     if (Math.abs(controlState.velocity.y) < 0.001) controlState.velocity.y = 0;
     if (Math.abs(controlState.velocity.z) < 0.001) controlState.velocity.z = 0;
     
+    // Get ground height before applying movement
+    const groundHeight = chunkManager.getHeightAtPosition(
+        camera.position.x, 
+        camera.position.z
+    );
+    
+    // Update debug element if available
+    if (controlState.debug) {
+        const debugEl = document.getElementById('modeIndicator').parentElement.querySelector('#debugInfo');
+        if (!debugEl) {
+            const newDebugEl = document.createElement('div');
+            newDebugEl.id = 'debugInfo';
+            newDebugEl.style.position = 'absolute';
+            newDebugEl.style.bottom = '50px';
+            newDebugEl.style.left = '10px';
+            newDebugEl.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
+            newDebugEl.style.color = 'white';
+            newDebugEl.style.padding = '5px 10px';
+            newDebugEl.style.borderRadius = '3px';
+            newDebugEl.style.fontFamily = 'monospace';
+            newDebugEl.style.fontSize = '12px';
+            document.body.appendChild(newDebugEl);
+        }
+        
+        if (!isNaN(groundHeight)) {
+            const debugEl = document.getElementById('debugInfo');
+            if (debugEl) {
+                debugEl.textContent = `Ground: ${groundHeight.toFixed(2)}, Cam Y: ${camera.position.y.toFixed(2)}, Diff: ${(camera.position.y - groundHeight).toFixed(2)}`;
+                if (camera.position.y < groundHeight) {
+                    debugEl.style.color = 'red';
+                } else if (camera.position.y === groundHeight + controlState.height) {
+                    debugEl.style.color = 'lime';
+                } else {
+                    debugEl.style.color = 'white';
+                }
+            }
+        }
+    }
+    
     // Handle walking mode height adaptation and collision
     if (controlState.mode === 'walking') {
-        // Get ground height at camera position
-        const groundHeight = chunkManager.getHeightAtPosition(
-            camera.position.x, 
-            camera.position.z
-        );
-        
-        // Update last known ground height if valid
+        // Clamp groundHeight to prevent NaN issues
         if (!isNaN(groundHeight)) {
             controlState.lastGroundHeight = groundHeight;
         }
@@ -448,36 +520,42 @@ function updateCamera(camera, keyState, mouseState, controlState, chunkManager) 
             // Apply gravity to jump velocity
             controlState.jumpVelocity -= controlState.gravity;
             
-            // Calculate target height including jump
-            const targetHeight = controlState.lastGroundHeight + controlState.height + controlState.jumpVelocity;
+            // Apply jump velocity
+            controlState.velocity.y = controlState.jumpVelocity;
             
             // If we hit the ground, stop jumping
-            if (camera.position.y <= controlState.lastGroundHeight + controlState.height) {
+            if (camera.position.y + controlState.velocity.y <= controlState.lastGroundHeight + controlState.height) {
                 camera.position.y = controlState.lastGroundHeight + controlState.height;
                 controlState.isJumping = false;
                 controlState.jumpVelocity = 0;
+                controlState.velocity.y = 0;
             }
-            
-            // Apply jump velocity
-            controlState.velocity.y = controlState.jumpVelocity;
         } else {
-            // Smooth terrain height adaptation when not jumping
-            const targetHeight = controlState.lastGroundHeight + controlState.height;
+            // Not jumping - keep precise height above terrain
+            // Apply horizontal movement first
+            camera.position.x += controlState.velocity.x;
+            camera.position.z += controlState.velocity.z;
             
-            // Only adapt height if not jumping
-            if (!controlState.isJumping) {
-                controlState.velocity.y = (targetHeight - camera.position.y) * controlState.adaptToTerrainSpeed;
+            // Get updated ground height at new position
+            const newGroundHeight = chunkManager.getHeightAtPosition(camera.position.x, camera.position.z);
+            
+            if (!isNaN(newGroundHeight)) {
+                // Update with most recent valid ground height
+                controlState.lastGroundHeight = newGroundHeight;
+                
+                // Set exact height on terrain
+                camera.position.y = newGroundHeight + controlState.height;
+                controlState.velocity.y = 0;
             }
         }
-        
-        // Additional collision checks (walls, etc) can be added here
+    } else {
+        // In flight mode, apply all velocity components
+        camera.position.addInPlace(controlState.velocity);
     }
     
-    // Apply velocity to position
-    camera.position.addInPlace(controlState.velocity);
-    
-    // Additional safety check to prevent going below ground
-    if (controlState.mode === 'walking' && camera.position.y < controlState.lastGroundHeight + 1.0) {
-        camera.position.y = controlState.lastGroundHeight + 1.0;
+    // Add a safety check to prevent going below ground in any mode
+    if (camera.position.y < controlState.lastGroundHeight + 0.1) {
+        camera.position.y = controlState.lastGroundHeight + 0.1;
+        controlState.velocity.y = Math.max(0, controlState.velocity.y);
     }
 }

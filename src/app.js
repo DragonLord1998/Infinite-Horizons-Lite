@@ -1,6 +1,7 @@
 /**
  * Main application entry point for Infinite Horizons (Phase 2)
  * With robust debugging and explicit progress tracking
+ * Optimized for performance and seamless terrain
  */
 import config from './config.js';
 import { createEngine } from './core/engine.js';
@@ -66,6 +67,9 @@ async function initApp() {
         const engine = createEngine(canvas);
         console.log("Engine created:", engine);
         
+        // Enable adaptive resolution for performance
+        engine.setHardwareScalingLevel(1.5); // Render at 2/3 of canvas size for better performance
+        
         // Step 3: Create the scene
         updateLoadingProgress("Setting up 3D scene...", 30);
         const scene = createScene(engine);
@@ -104,6 +108,81 @@ async function initApp() {
         }
         console.log("Performance monitoring setup");
         
+        // Setup adaptive performance monitoring
+        const setupAdaptivePerformance = () => {
+            if (config.performance.enableAdaptivePerformance) {
+                let lastPerformanceCheck = 0;
+                let lowPerformanceMode = false;
+                
+                // Monitor FPS and adjust settings if needed
+                scene.onBeforeRenderObservable.add(() => {
+                    const now = performance.now();
+                    if (now - lastPerformanceCheck > config.performance.adaptiveCheckInterval) {
+                        lastPerformanceCheck = now;
+                        
+                        const currentFPS = engine.getFps();
+                        console.log(`Current FPS: ${currentFPS}`);
+                        
+                        // Enter low performance mode if FPS drops too low
+                        if (currentFPS < config.performance.fpsThreshold && !lowPerformanceMode) {
+                            console.log("Entering low performance mode due to low FPS");
+                            lowPerformanceMode = true;
+                            
+                            // Reduce terrain resolution
+                            config.terrain.chunkResolution = 17;
+                            
+                            // Reduce draw distance
+                            config.terrain.loadDistance = 1;
+                            
+                            // Force LOD update
+                            chunkManager.updateChunkLOD(camera.position);
+                            
+                            // Increase hardware scaling for better performance
+                            engine.setHardwareScalingLevel(2.0);
+                            
+                            // Show performance message to user
+                            const performanceMsg = document.createElement('div');
+                            performanceMsg.style.position = 'absolute';
+                            performanceMsg.style.bottom = '50px';
+                            performanceMsg.style.left = '50%';
+                            performanceMsg.style.transform = 'translateX(-50%)';
+                            performanceMsg.style.backgroundColor = 'rgba(200, 0, 0, 0.7)';
+                            performanceMsg.style.color = 'white';
+                            performanceMsg.style.padding = '10px';
+                            performanceMsg.style.borderRadius = '5px';
+                            performanceMsg.style.fontFamily = 'Arial, sans-serif';
+                            performanceMsg.style.fontSize = '14px';
+                            performanceMsg.style.zIndex = '1000';
+                            performanceMsg.textContent = 'Low performance detected. Reducing visual quality.';
+                            document.body.appendChild(performanceMsg);
+                            
+                            setTimeout(() => {
+                                performanceMsg.style.opacity = '0';
+                                performanceMsg.style.transition = 'opacity 1s ease';
+                                setTimeout(() => {
+                                    document.body.removeChild(performanceMsg);
+                                }, 1000);
+                            }, 3000);
+                        }
+                        // Exit low performance mode if FPS improves
+                        else if (currentFPS > config.performance.fpsThreshold + 10 && lowPerformanceMode) {
+                            console.log("Exiting low performance mode due to improved FPS");
+                            lowPerformanceMode = false;
+                            
+                            // Restore original settings
+                            config.terrain.chunkResolution = 21;
+                            config.terrain.loadDistance = 2;
+                            
+                            // Restore hardware scaling
+                            engine.setHardwareScalingLevel(1.5);
+                        }
+                    }
+                });
+                
+                console.log("Adaptive performance monitoring enabled");
+            }
+        };
+        
         // Step 10: Configure render loop
         updateLoadingProgress("Starting render loop...", 95);
         engine.runRenderLoop(() => {
@@ -117,6 +196,9 @@ async function initApp() {
         window.addEventListener('resize', () => {
             engine.resize();
         });
+        
+        // Setup adaptive performance monitoring
+        setupAdaptivePerformance();
         
         // Final step: Hide loading screen and show help
         updateLoadingProgress("Initialization complete!", 100);

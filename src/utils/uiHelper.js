@@ -9,18 +9,22 @@ import { initMaterialUI } from '../ui/materialUI.js';
  * @param {BABYLON.Scene} scene - The Babylon.js scene
  * @param {Object} chunkManager - The terrain chunk manager
  * @param {Object} cameraControls - The camera controls
- * @param {BABYLON.ShaderMaterial} terrainMaterial - The terrain shader material
+ * @param {BABYLON.ShaderMaterial|BABYLON.PBRMaterial} terrainMaterial - The terrain shader material
  * @returns {Object} UI helper object
  */
 export function initUI(scene, chunkManager, cameraControls, terrainMaterial) {
+    // Debug logging
+    console.log("[UI] Initializing UI with material:", terrainMaterial ? terrainMaterial.getClassName() : "None");
+    
     // Create help overlay
     const helpOverlay = createHelpOverlay();
     
     // Create minimap
     const minimap = createMinimap(scene, chunkManager);
     
-    // Initialize material UI (new in Phase 2)
+    // Initialize material UI (works with both shader and standard materials)
     const materialUI = terrainMaterial ? initMaterialUI(scene, terrainMaterial) : null;
+    console.log("[UI] Material UI initialized:", materialUI ? "Success" : "Failed");
     
     // Create FPS display (enhanced in Phase 2)
     const fpsDisplay = createFPSDisplay(scene.getEngine());
@@ -33,7 +37,23 @@ export function initUI(scene, chunkManager, cameraControls, terrainMaterial) {
         materialUIVisible: false
     };
     
-    // Set up keyboard shortcuts
+    // IMPORTANT: Set up dedicated keyboard handler for Alt+M
+    window.addEventListener('keydown', (e) => {
+        // Check for Alt+M specifically for material editor
+        if (e.key.toLowerCase() === 'm' && e.altKey && !e.ctrlKey && !e.shiftKey) {
+            console.log("[UI] Alt+M detected, toggling material editor");
+            if (materialUI) {
+                materialUI.toggleUI();
+                uiState.materialUIVisible = !uiState.materialUIVisible;
+                console.log("[UI] Material UI visibility:", uiState.materialUIVisible);
+            } else {
+                console.warn("[UI] Material UI not available");
+            }
+            e.preventDefault(); // Prevent default browser behavior
+        }
+    });
+    
+    // Set up keyboard shortcuts for other UI elements
     setupKeyboardShortcuts(scene, uiState, helpOverlay, minimap, fpsDisplay, materialUI, cameraControls);
     
     return {
@@ -41,6 +61,7 @@ export function initUI(scene, chunkManager, cameraControls, terrainMaterial) {
         toggleHelp() {
             uiState.helpVisible = !uiState.helpVisible;
             helpOverlay.style.display = uiState.helpVisible ? 'block' : 'none';
+            console.log("[UI] Help overlay visibility:", uiState.helpVisible);
             
             // Disable camera controls when help is visible
             if (cameraControls && cameraControls.setMouseControlsEnabled) {
@@ -65,6 +86,9 @@ export function initUI(scene, chunkManager, cameraControls, terrainMaterial) {
             if (materialUI) {
                 materialUI.toggleUI();
                 uiState.materialUIVisible = !uiState.materialUIVisible;
+                console.log("[UI] Material UI visibility toggled:", uiState.materialUIVisible);
+            } else {
+                console.warn("[UI] Material UI not available");
             }
         },
         
@@ -80,6 +104,11 @@ export function initUI(scene, chunkManager, cameraControls, terrainMaterial) {
             if (uiState.fpsVisible) {
                 updateFPSDisplay(fpsDisplay, scene.getEngine());
             }
+        },
+        
+        // Get UI state (for debugging)
+        getState() {
+            return uiState;
         }
     };
 }
@@ -469,14 +498,6 @@ function setupKeyboardShortcuts(scene, uiState, helpOverlay, minimap, fpsDisplay
         if (event.code === 'KeyP' && !event.altKey && !event.ctrlKey && !event.shiftKey) {
             uiState.fpsVisible = !uiState.fpsVisible;
             fpsDisplay.style.display = uiState.fpsVisible ? 'block' : 'none';
-        }
-        
-        // Toggle material UI on Alt+M
-        if (event.code === 'KeyM' && event.altKey && !event.ctrlKey && !event.shiftKey) {
-            if (materialUI) {
-                materialUI.toggleUI();
-                uiState.materialUIVisible = !uiState.materialUIVisible;
-            }
         }
         
         // Reset camera position on R key

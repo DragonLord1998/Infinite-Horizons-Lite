@@ -18,6 +18,8 @@ export function createEngine(canvas) {
     
     // Log engine version
     console.log(`Babylon.js engine initialized, version: ${BABYLON.Engine.Version}`);
+    console.log("Initializing with custom shaders");
+
     
     // Check if WebGL2 is supported
     if (engine.webGLVersion === 2) {

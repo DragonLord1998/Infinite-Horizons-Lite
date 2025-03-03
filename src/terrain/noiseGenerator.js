@@ -1,5 +1,6 @@
 /**
  * Enhanced noise generation functions for terrain generation
+ * Improved for terrain variation, seamless stitching, and preventing flat terrain
  */
 
 /**
@@ -10,18 +11,21 @@
 export function createNoiseGenerator(noiseConfig) {
     const seed = noiseConfig.seed || Math.random() * 1000000;
     
-    // Initialize the noise generator state
+    // Initialize the noise generator state with improved defaults
     const state = {
         seed: seed,
-        scale: noiseConfig.scale || 0.01,
-        octaves: noiseConfig.octaves || 4,
-        persistence: noiseConfig.persistence || 0.5,
-        lacunarity: noiseConfig.lacunarity || 2.0
+        scale: noiseConfig.scale || 0.005, // Changed from 0.01 for larger features
+        octaves: noiseConfig.octaves || 6,  // Increased from 4
+        persistence: noiseConfig.persistence || 0.65, // Increased from 0.5 for more variation
+        lacunarity: noiseConfig.lacunarity || 2.2   // Adjusted from 2.0
     };
     
     return {
+        // Access to state properties
+        get scale() { return state.scale; },
+        
         /**
-         * Generate a heightmap for a chunk
+         * Generate a heightmap for a chunk with improved seamlessness
          * @param {number} chunkX - Chunk X coordinate
          * @param {number} chunkZ - Chunk Z coordinate
          * @param {number} chunkSize - Size of the chunk in world units
@@ -29,80 +33,175 @@ export function createNoiseGenerator(noiseConfig) {
          * @returns {Float32Array} The generated heightmap
          */
         generateHeightmap(chunkX, chunkZ, chunkSize, resolution) {
+            console.log(`Generating heightmap for chunk ${chunkX},${chunkZ}`);
+            
             // Create a new Float32Array to store the heightmap
             const heightmap = new Float32Array(resolution * resolution);
             
-            // Calculate the world position of the chunk's corner
+            // Create a more varied base height for this chunk to prevent flatness
+            // This ensures every chunk has a different starting point
+            const baseHeight = 0.3 + (this.pseudoRandom(chunkX, chunkZ) * 0.4);
+            
+            // Calculate world coordinates with proper global position
             const worldX = chunkX * chunkSize;
             const worldZ = chunkZ * chunkSize;
             
-            // Scale factor to convert from grid coordinates to world coordinates
+            // Scale factor for vertex spacing
             const scale = chunkSize / (resolution - 1);
             
-            // Generate heightmap values with additional noise variations
+            // GUARANTEED VARIATION - add a simple slope across the chunk
+            // This ensures height variation even if noise is flat
+            const slopeDirectionX = this.pseudoRandom(chunkX * 13, chunkZ * 7) * 2 - 1;
+            const slopeDirectionZ = this.pseudoRandom(chunkX * 7, chunkZ * 13) * 2 - 1;
+            const slopeIntensity = 0.2 + this.pseudoRandom(chunkX + chunkZ, chunkX * chunkZ) * 0.3;
+            
+            // Generate heightmap values
             for (let z = 0; z < resolution; z++) {
                 for (let x = 0; x < resolution; x++) {
                     // Calculate world coordinates for this point
                     const wx = worldX + x * scale;
                     const wz = worldZ + z * scale;
                     
-                    // Get base noise value
-                    let noiseValue = this.getFractalNoise(wx, wz);
+                    // Global position for large-scale features
+                    const gx = wx * 0.005; // Larger scale for primary terrain features
+                    const gz = wz * 0.005;
                     
-                    // Apply terrain enhancements
-                    noiseValue = this.enhanceTerrain(wx, wz, noiseValue);
+                    // Medium scale for secondary terrain features
+                    const mx = wx * 0.01;
+                    const mz = wz * 0.01;
                     
-                    // Store in the heightmap array
+                    // Small scale for terrain details
+                    const sx = wx * 0.05;
+                    const sz = wz * 0.05;
+                    
+                    // Create primary noise value (large-scale terrain shape)
+                    let noiseValue = this.getFractalNoise(gx, gz) * 0.6;
+                    
+                    // Add medium-scale detail
+                    noiseValue += this.getFractalNoise(mx, mz) * 0.3;
+                    
+                    // Add small-scale detail
+                    noiseValue += this.getFractalNoise(sx, sz) * 0.1;
+                    
+                    // Add domain warping for more natural shapes
+                    const warpX = this.getNoise(mx, mz) * 10;
+                    const warpZ = this.getNoise(mx + 100, mz + 100) * 10;
+                    noiseValue += this.getFractalNoise((gx + warpX * 0.005), (gz + warpZ * 0.005)) * 0.2;
+                    
+                    // CRITICAL: Add the guaranteed slope variation
+                    // This ensures no chunk is completely flat
+                    const normalizedX = x / (resolution - 1);
+                    const normalizedZ = z / (resolution - 1);
+                    const slopeVariation = ((normalizedX * slopeDirectionX) + (normalizedZ * slopeDirectionZ)) * slopeIntensity;
+                    
+                    // Add regional offset to create larger landscape features
+                    const regionX = Math.floor(chunkX / 8);
+                    const regionZ = Math.floor(chunkZ / 8);
+                    const regionOffset = this.pseudoRandom(regionX, regionZ) * 0.3;
+                    
+                    // Combine all elements with the base height
+                    noiseValue = baseHeight + noiseValue + slopeVariation + regionOffset;
+                    
+                    // Add terrain features based on region
+                    noiseValue = this.addRegionalFeatures(noiseValue, wx, wz, regionX, regionZ);
+                    
+                    // Ensure value is within range but with good variation
+                    noiseValue = Math.max(0.1, Math.min(0.9, noiseValue));
+                    
+                    // Store in heightmap
                     heightmap[z * resolution + x] = noiseValue;
                 }
             }
+            
+            // Apply seamless stitching at chunk edges
+            // Ensures no gaps between chunks
+            this.smoothChunkEdges(heightmap, resolution);
+            
+            // Validate we're getting non-zero heights
+            let totalHeight = 0;
+            let minHeight = 1.0;
+            let maxHeight = 0.0;
+            
+            for (let i = 0; i < heightmap.length; i++) {
+                totalHeight += heightmap[i];
+                minHeight = Math.min(minHeight, heightmap[i]);
+                maxHeight = Math.max(maxHeight, heightmap[i]);
+            }
+            
+            console.log(`Chunk ${chunkX},${chunkZ} heights - Min: ${minHeight.toFixed(2)}, Max: ${maxHeight.toFixed(2)}, Avg: ${(totalHeight/heightmap.length).toFixed(2)}`);
             
             return heightmap;
         },
         
         /**
-         * Enhance terrain with additional features
-         * @param {number} x - X coordinate in world space
-         * @param {number} z - Z coordinate in world space
-         * @param {number} baseNoise - Base noise value
-         * @returns {number} Enhanced noise value
+         * Smooth chunk edges to ensure seamless stitching
+         * @param {Float32Array} heightmap - Heightmap to smooth
+         * @param {number} resolution - Resolution of heightmap
          */
-        enhanceTerrain(x, z, baseNoise) {
-            // Add ridged noise for mountains
-            const ridgedNoise = this.getRidgedNoise(x, z) * 0.3;
+        smoothChunkEdges(heightmap, resolution) {
+            const BORDER_SIZE = 1;
             
-            // Add warped noise for valleys
-            const warpedNoise = this.getWarpedNoise(x, z) * 0.15;
+            // Smooth north and south edges
+            for (let x = 0; x < resolution; x++) {
+                for (let b = 0; b < BORDER_SIZE; b++) {
+                    // North edge (less height variation)
+                    heightmap[b * resolution + x] = 
+                        0.8 * heightmap[b * resolution + x] + 
+                        0.2 * heightmap[(BORDER_SIZE + 2) * resolution + x];
+                    
+                    // South edge (less height variation)
+                    heightmap[(resolution - 1 - b) * resolution + x] = 
+                        0.8 * heightmap[(resolution - 1 - b) * resolution + x] + 
+                        0.2 * heightmap[(resolution - 3 - b) * resolution + x];
+                }
+            }
             
-            // Combine different noise types
-            let enhancedNoise = baseNoise * 0.6 + ridgedNoise + warpedNoise;
-            
-            // Apply plateaus
-            enhancedNoise = this.applyPlateaus(enhancedNoise);
-            
-            // Ensure value is in [0, 1] range
-            return Math.max(0, Math.min(1, enhancedNoise));
+            // Smooth east and west edges
+            for (let z = 0; z < resolution; z++) {
+                for (let b = 0; b < BORDER_SIZE; b++) {
+                    // West edge
+                    heightmap[z * resolution + b] = 
+                        0.8 * heightmap[z * resolution + b] + 
+                        0.2 * heightmap[z * resolution + (b + 2)];
+                    
+                    // East edge
+                    heightmap[z * resolution + (resolution - 1 - b)] = 
+                        0.8 * heightmap[z * resolution + (resolution - 1 - b)] + 
+                        0.2 * heightmap[z * resolution + (resolution - 3 - b)];
+                }
+            }
         },
         
         /**
-         * Apply plateaus to create more interesting terrain features
-         * @param {number} noiseValue - Input noise value
-         * @returns {number} Noise with plateau effects
+         * Add region-specific terrain features to break up repetition
+         * @param {number} baseValue - Base noise value
+         * @param {number} x - X coordinate
+         * @param {number} z - Z coordinate
+         * @param {number} regionX - Region X coordinate
+         * @param {number} regionZ - Region Z coordinate
+         * @returns {number} Modified noise value with regional features
          */
-        applyPlateaus(noiseValue) {
-            // Create plateaus by slightly flattening certain height ranges
-            if (noiseValue > 0.75) {
-                // Flatten high peaks slightly
-                return 0.75 + (noiseValue - 0.75) * 0.8;
-            } else if (noiseValue > 0.5 && noiseValue < 0.58) {
-                // Create a mid-level plateau
-                return 0.5 + (noiseValue - 0.5) * 0.3;
-            } else if (noiseValue < 0.2) {
-                // Flatten low areas for valleys
-                return noiseValue * 0.9;
-            }
+        addRegionalFeatures(baseValue, x, z, regionX, regionZ) {
+            // Use region coordinates to create different terrain types in different areas
+            const regionType = ((regionX + regionZ) % 5);
             
-            return noiseValue;
+            switch(regionType) {
+                case 0: // Mountains
+                    return baseValue * 1.2;
+                case 1: // Valleys
+                    return Math.pow(baseValue, 1.2) * 0.9;
+                case 2: // Plateaus
+                    const threshold = 0.5 + this.getNoise(x * 0.01, z * 0.01) * 0.1;
+                    return (baseValue > threshold) ? 
+                        threshold + (baseValue - threshold) * 0.3 : 
+                        baseValue * 0.9;
+                case 3: // Hills
+                    return baseValue * 0.85 + 0.15;
+                case 4: // Mixed terrain
+                    return baseValue;
+                default:
+                    return baseValue;
+            }
         },
         
         /**
@@ -117,12 +216,20 @@ export function createNoiseGenerator(noiseConfig) {
             let noiseValue = 0;
             let amplitudeSum = 0;
             
-            // Sum multiple octaves of noise
+            // Create domain warping for more natural variation
+            const warpX = this.getNoise(x * 0.5, z * 0.5) * 5.0;
+            const warpZ = this.getNoise(x * 0.5 + 100, z * 0.5 + 100) * 5.0;
+            
+            // Add large-scale variation
+            noiseValue += this.getNoise(x * 0.1, z * 0.1) * 0.5;
+            
+            // Sum multiple octaves of noise with increased range
             for (let i = 0; i < state.octaves; i++) {
-                // Add scaled noise value for this octave
-                noiseValue += amplitude * this.getNoise(x * frequency, z * frequency);
+                // Sample at warped coordinates for more variation
+                const sampleX = (x + warpX * (i/state.octaves)) * frequency;
+                const sampleZ = (z + warpZ * (i/state.octaves)) * frequency;
                 
-                // Track total amplitude for normalization
+                noiseValue += amplitude * this.getNoise(sampleX, sampleZ);
                 amplitudeSum += amplitude;
                 
                 // Update amplitude and frequency for next octave
@@ -130,59 +237,18 @@ export function createNoiseGenerator(noiseConfig) {
                 frequency *= state.lacunarity;
             }
             
-            // Normalize the result to [0, 1]
-            return (noiseValue / amplitudeSum) * 0.5 + 0.5;
-        },
-        
-        /**
-         * Generate ridged noise (absolute value of noise with inversion)
-         * @param {number} x - X coordinate in world space
-         * @param {number} z - Z coordinate in world space
-         * @returns {number} Ridged noise value in range [0, 1]
-         */
-        getRidgedNoise(x, z) {
-            let amplitude = 1.0;
-            let frequency = state.scale * 1.8; // Different base frequency
-            let noiseValue = 0;
-            let amplitudeSum = 0;
-            
-            // Sum multiple octaves
-            for (let i = 0; i < state.octaves; i++) {
-                // Get noise value
-                let n = this.getNoise(x * frequency, z * frequency);
-                
-                // Make ridged by taking absolute value and inverting
-                n = 1.0 - Math.abs(n);
-                
-                // Square the result to create sharper ridges
-                n *= n;
-                
-                // Add to sum
-                noiseValue += n * amplitude;
-                amplitudeSum += amplitude;
-                
-                // Update for next octave
-                amplitude *= state.persistence;
-                frequency *= state.lacunarity;
+            // Add ridged noise component for mountain features
+            if (noiseValue > 0.5) {
+                const ridged = 1.0 - Math.abs(this.getNoise(x * frequency * 0.5, z * frequency * 0.5));
+                noiseValue += ridged * ridged * 0.3;
             }
             
-            // Normalize the result to [0, 1]
-            return (noiseValue / amplitudeSum);
-        },
-        
-        /**
-         * Generate domain-warped noise for more natural terrain
-         * @param {number} x - X coordinate in world space
-         * @param {number} z - Z coordinate in world space
-         * @returns {number} Warped noise value in range [0, 1]
-         */
-        getWarpedNoise(x, z) {
-            // Apply domain warping by using noise to offset sampling coordinates
-            const warpX = this.getNoise(x * state.scale * 0.5, z * state.scale * 0.5) * 10.0;
-            const warpZ = this.getNoise(x * state.scale * 0.5 + 100, z * state.scale * 0.5 + 100) * 10.0;
+            // Normalize and enhance range
+            let normalizedNoise = (noiseValue / (amplitudeSum + 0.5)) * 0.5 + 0.5;
             
-            // Sample noise at the warped location
-            return this.getFractalNoise(x + warpX, z + warpZ);
+            // Apply contrast enhancement for better distribution
+            normalizedNoise = (normalizedNoise - 0.5) * 1.2 + 0.5;
+            return Math.max(0, Math.min(1, normalizedNoise));
         },
         
         /**
@@ -223,7 +289,7 @@ export function createNoiseGenerator(noiseConfig) {
          * @returns {number} Random value in range [0, 1]
          */
         pseudoRandom(x, y) {
-            // Simple but effective hash function
+            // Improved hash function
             const h = this.hashFunction(x, y, state.seed);
             return h / 4294967296; // Convert to [0, 1]
         },
@@ -236,17 +302,18 @@ export function createNoiseGenerator(noiseConfig) {
          * @returns {number} Integer hash value
          */
         hashFunction(x, y, seed) {
-            // Convert to integers
-            let ix = Math.floor(x);
-            let iy = Math.floor(y);
-            let iseed = Math.floor(seed);
+            // Convert to integers - ensure we're dealing with well-defined values
+            let ix = Math.floor(x) | 0;
+            let iy = Math.floor(y) | 0;
+            let iseed = Math.floor(seed) | 0;
             
-            // Improved hash function for better distribution
+            // Better hash function with improved bit mixing
             let h = iseed & 0xFFFF;
             h = (h * 73 + ix) & 0xFFFF;
             h = (h * 73 + iy) & 0xFFFF;
             h = h * (h + 19) & 0xFFFF;
             h = (h * h * 60493) & 0xFFFF;
+            h = (h ^ (h >> 8)) * 0x2E63; // Better bit mixing
             
             return h;
         },
@@ -269,6 +336,26 @@ export function createNoiseGenerator(noiseConfig) {
          */
         smootherstep(t) {
             return t * t * t * (t * (t * 6 - 15) + 10);
+        },
+        
+        /**
+         * Get height at a specific world position
+         * @param {number} worldX - World X coordinate
+         * @param {number} worldZ - World Z coordinate
+         * @returns {number} Height value in range [0, 1]
+         */
+        getHeightAtPosition(worldX, worldZ) {
+            // Use consistent scale for height queries
+            const gx = worldX * 0.005; // Large scale
+            const gz = worldZ * 0.005;
+            
+            const mx = worldX * 0.01; // Medium scale
+            const mz = worldZ * 0.01;
+            
+            // Combine different scales for natural variation
+            return 0.6 * this.getFractalNoise(gx, gz) + 
+                   0.3 * this.getFractalNoise(mx, mz) + 
+                   0.1 * this.getFractalNoise(worldX * 0.05, worldZ * 0.05);
         }
     };
 }

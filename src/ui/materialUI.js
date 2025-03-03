@@ -11,6 +11,8 @@ import { updateShaderParameters, saveMaterialPreset, loadMaterialPreset, getPred
  * @returns {Object} The UI control object
  */
 export function initMaterialUI(scene, material) {
+    console.log("[MaterialUI] Initializing material editor UI for", material ? material.name : "no material");
+    
     // Create UI container
     const container = document.createElement('div');
     container.id = 'materialUI';
@@ -155,12 +157,37 @@ export function initMaterialUI(scene, material) {
     createSlider('Noise Intensity', 'noiseIntensity', 0, 0.5, 0.01, material, noiseSection);
     createSlider('Material Blend Sharpness', 'materialBlendSharpness', 1, 20, 0.5, material, noiseSection);
     
+    // Add help info at the bottom
+    const helpText = document.createElement('div');
+    helpText.style.marginTop = '20px';
+    helpText.style.fontSize = '12px';
+    helpText.style.opacity = '0.7';
+    helpText.style.borderTop = '1px solid rgba(255, 255, 255, 0.2)';
+    helpText.style.paddingTop = '10px';
+    helpText.innerHTML = 'Press <strong>Alt+M</strong> to toggle this panel.<br>Changes are applied in real-time.';
+    container.appendChild(helpText);
+    
     // Add to document
     document.body.appendChild(container);
     
+    // Define toggle function for UI visibility
+    function toggleUI() {
+        const newVisibility = container.style.display === 'none' ? 'block' : 'none';
+        console.log(`[MaterialUI] Setting material UI visibility to: ${newVisibility}`);
+        container.style.display = newVisibility;
+        
+        // If showing UI, update controls to reflect current material values
+        if (newVisibility === 'block') {
+            updateUIFromMaterial(material, container);
+        }
+        
+        return newVisibility === 'block'; // Return true if now visible
+    }
+    
     // Setup event handlers
     closeButton.addEventListener('click', () => {
-        container.style.display = 'none';
+        console.log("[MaterialUI] Close button clicked");
+        toggleUI();
     });
     
     presetSelect.addEventListener('change', () => {
@@ -223,30 +250,12 @@ export function initMaterialUI(scene, material) {
         }
     });
     
-    // Set up keyboard shortcut
-    window.addEventListener('keydown', (e) => {
-        // Alt+M to toggle material UI
-        if (e.key === 'm' && e.altKey) {
-            toggleUI();
-            e.preventDefault();
-        }
-    });
-    
-    // Toggle UI function
-    function toggleUI() {
-        if (container.style.display === 'none') {
-            container.style.display = 'block';
-            updateUIFromMaterial(material, container);
-        } else {
-            container.style.display = 'none';
-        }
-    }
-    
     // Return UI control object
     return {
         container,
         toggleUI,
-        updateUI: () => updateUIFromMaterial(material, container)
+        updateUI: () => updateUIFromMaterial(material, container),
+        isVisible: () => container.style.display !== 'none'
     };
 }
 
@@ -297,17 +306,29 @@ function createColorPicker(label, parameter, material, container) {
     colorInput.dataset.parameter = parameter;
     
     // Get initial color from material
-    const color3 = material[parameter];
-    if (color3) {
-        const hexColor = BABYLON.Color3.ToHexString(color3);
-        colorInput.value = hexColor;
+    try {
+        const color3 = material.getColor3(parameter);
+        if (color3) {
+            const hexColor = BABYLON.Color3.ToHexString(color3);
+            colorInput.value = hexColor;
+        } else {
+            console.warn(`[MaterialUI] Couldn't get color parameter: ${parameter}`);
+            colorInput.value = "#FFFFFF";
+        }
+    } catch (e) {
+        console.error(`[MaterialUI] Error getting material color for ${parameter}:`, e);
+        colorInput.value = "#FFFFFF";
     }
     
     colorInput.addEventListener('input', () => {
         // Update material with new color
-        const params = {};
-        params[parameter] = colorInput.value;
-        updateShaderParameters(material, params);
+        try {
+            const params = {};
+            params[parameter] = colorInput.value;
+            updateShaderParameters(material, params);
+        } catch (e) {
+            console.error(`[MaterialUI] Error updating material color for ${parameter}:`, e);
+        }
     });
     
     controlContainer.appendChild(controlLabel);
@@ -346,7 +367,23 @@ function createSlider(label, parameter, min, max, step, material, container) {
     valueDisplay.style.fontFamily = 'monospace';
     
     // Get initial value from material
-    const initialValue = material[parameter] !== undefined ? material[parameter] : 0;
+    let initialValue = 0;
+    try {
+        if (material && typeof material.getFloat === 'function') {
+            initialValue = material.getFloat(parameter);
+            if (isNaN(initialValue)) {
+                console.warn(`[MaterialUI] Parameter ${parameter} returned NaN, using default`);
+                initialValue = (min + max) / 2;
+            }
+        } else {
+            console.warn(`[MaterialUI] Material doesn't have getFloat method, using default value for ${parameter}`);
+            initialValue = (min + max) / 2;
+        }
+    } catch (e) {
+        console.error(`[MaterialUI] Error getting parameter ${parameter}:`, e);
+        initialValue = (min + max) / 2;
+    }
+    
     valueDisplay.textContent = initialValue.toFixed(step < 0.1 ? 3 : 1);
     
     controlHeader.appendChild(controlLabel);
@@ -368,9 +405,13 @@ function createSlider(label, parameter, min, max, step, material, container) {
         valueDisplay.textContent = parseFloat(slider.value).toFixed(step < 0.1 ? 3 : 1);
         
         // Update material with new value
-        const params = {};
-        params[parameter] = parseFloat(slider.value);
-        updateShaderParameters(material, params);
+        try {
+            const params = {};
+            params[parameter] = parseFloat(slider.value);
+            updateShaderParameters(material, params);
+        } catch (e) {
+            console.error(`[MaterialUI] Error updating parameter ${parameter}:`, e);
+        }
     });
     
     controlContainer.appendChild(controlHeader);
@@ -386,14 +427,25 @@ function createSlider(label, parameter, min, max, step, material, container) {
  * @param {HTMLElement} container - UI container
  */
 function updateUIFromMaterial(material, container) {
+    if (!material) {
+        console.warn("[MaterialUI] Cannot update UI: No material provided");
+        return;
+    }
+    
+    console.log("[MaterialUI] Updating UI controls from material values");
+    
     // Update color inputs
     const colorInputs = container.querySelectorAll('input[type="color"]');
     colorInputs.forEach(input => {
         const parameter = input.dataset.parameter;
-        const color3 = material[parameter];
-        if (color3) {
-            const hexColor = BABYLON.Color3.ToHexString(color3);
-            input.value = hexColor;
+        try {
+            const color3 = material.getColor3(parameter);
+            if (color3) {
+                const hexColor = BABYLON.Color3.ToHexString(color3);
+                input.value = hexColor;
+            }
+        } catch (e) {
+            console.warn(`[MaterialUI] Couldn't update color input for ${parameter}:`, e);
         }
     });
     
@@ -401,15 +453,20 @@ function updateUIFromMaterial(material, container) {
     const sliders = container.querySelectorAll('input[type="range"]');
     sliders.forEach(slider => {
         const parameter = slider.dataset.parameter;
-        if (material[parameter] !== undefined) {
-            slider.value = material[parameter];
-            // Update value display
-            const valueDisplay = slider.parentElement.querySelector('.value-display');
-            if (valueDisplay) {
-                valueDisplay.textContent = parseFloat(slider.value).toFixed(
-                    parseFloat(slider.step) < 0.1 ? 3 : 1
-                );
+        try {
+            const value = material.getFloat(parameter);
+            if (!isNaN(value)) {
+                slider.value = value;
+                // Update value display
+                const valueDisplay = slider.parentElement.querySelector('.value-display');
+                if (valueDisplay) {
+                    valueDisplay.textContent = parseFloat(slider.value).toFixed(
+                        parseFloat(slider.step) < 0.1 ? 3 : 1
+                    );
+                }
             }
+        } catch (e) {
+            console.warn(`[MaterialUI] Couldn't update slider for ${parameter}:`, e);
         }
     });
 }
@@ -440,6 +497,8 @@ function styleButton(button) {
  * @param {string} message - Message to display
  */
 function showNotification(message) {
+    console.log("[MaterialUI] Notification:", message);
+    
     // Check if notification element already exists
     let notification = document.getElementById('ui-notification');
     

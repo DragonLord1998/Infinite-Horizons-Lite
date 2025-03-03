@@ -10,96 +10,114 @@ import config from '../config.js';
  * @returns {BABYLON.ShaderMaterial} The created shader material
  */
 export function createShaderTerrainMaterial(scene) {
+    console.log("[ShaderMaterial] Creating shader-based terrain material");
+    
     // Get the shader code directly
     const vertexShaderCode = getVertexShaderCode();
     const fragmentShaderCode = getFragmentShaderCode();
     
-    // Create a shader material with inline shader code
-    const shaderMaterial = new BABYLON.ShaderMaterial(
-        "terrainShaderMaterial",
-        scene,
-        {
-            vertex: 'terrainVertex',
-            fragment: 'terrainFragment',
-        },
-        {
-            attributes: ["position", "normal", "uv"],
-            uniforms: [
-                "world", "worldView", "worldViewProjection", 
-                "view", "projection", "maxHeight"
-            ]
-        }
-    );
-
-    // Add the actual shader code using BABYLON.Effect
-    BABYLON.Effect.ShadersStore["terrainVertexShader"] = vertexShaderCode;
-    BABYLON.Effect.ShadersStore["terrainFragmentShader"] = fragmentShaderCode;
+    console.log("[ShaderMaterial] Vertex shader length:", vertexShaderCode.length);
+    console.log("[ShaderMaterial] Fragment shader length:", fragmentShaderCode.length);
     
-    // Set initial shader parameters 
-    shaderMaterial.setFloat("maxHeight", config.terrain.maxHeight);
-    
-    // Set material parameters for biomes
-    // Grass biome
-    shaderMaterial.setColor3("grassColor", new BABYLON.Color3(0.3, 0.5, 0.2));
-    shaderMaterial.setColor3("grassColorVariation", new BABYLON.Color3(0.1, 0.1, 0.05));
-    shaderMaterial.setFloat("grassRoughness", 0.8);
-    
-    // Rock biome
-    shaderMaterial.setColor3("rockColor", new BABYLON.Color3(0.5, 0.45, 0.4));
-    shaderMaterial.setColor3("rockColorVariation", new BABYLON.Color3(0.1, 0.1, 0.1));
-    shaderMaterial.setFloat("rockRoughness", 0.9);
-    
-    // Snow biome
-    shaderMaterial.setColor3("snowColor", new BABYLON.Color3(0.9, 0.9, 0.95));
-    shaderMaterial.setColor3("snowColorVariation", new BABYLON.Color3(0.05, 0.05, 0.05));
-    shaderMaterial.setFloat("snowRoughness", 0.7);
-    
-    // Sand biome
-    shaderMaterial.setColor3("sandColor", new BABYLON.Color3(0.76, 0.7, 0.5));
-    shaderMaterial.setColor3("sandColorVariation", new BABYLON.Color3(0.1, 0.1, 0.05));
-    shaderMaterial.setFloat("sandRoughness", 0.6);
-    
-    // Material boundaries
-    shaderMaterial.setFloat("snowHeight", 0.75); // Where snow begins
-    shaderMaterial.setFloat("rockHeight", 0.4);  // Where rock begins
-    shaderMaterial.setFloat("sandHeight", 0.1);  // Where sand begins
-    
-    // Slopes
-    shaderMaterial.setFloat("steepSlopeThreshold", 0.5); // Above this slope value, use rock material
-    shaderMaterial.setFloat("slopeSmoothness", 0.1);    // Transition smoothness between slope materials
-    
-    // Noise parameters
-    shaderMaterial.setFloat("globalNoiseScale", 0.01);  // Global scale for all noise
-    shaderMaterial.setFloat("detailNoiseScale", 50.0);  // Detail noise scale
-    shaderMaterial.setFloat("noiseIntensity", 0.1);     // Intensity of noise effect on colors
-    
-    // Material blending
-    shaderMaterial.setFloat("materialBlendSharpness", 10.0); // Higher values = sharper transitions
-    
-    // Lighting parameters
-    shaderMaterial.setFloat("ambientIntensity", 0.3);   // Ambient light intensity
-    shaderMaterial.setVector3("sunDirection", new BABYLON.Vector3(-0.5, -0.6, 0.3).normalize());
-    shaderMaterial.setColor3("sunColor", new BABYLON.Color3(1.0, 0.9, 0.7)); // Warm sunlight
-    
-    // Backface culling for performance
-    shaderMaterial.backFaceCulling = true;
-    
-    // Disable alpha blending (fully opaque)
-    shaderMaterial.alphaMode = BABYLON.Engine.ALPHA_DISABLE;
-    
-    // Update parameters from scene lighting
-    scene.onBeforeRenderObservable.add(() => {
-        // Find directional light to use as sun
-        const sunLight = scene.lights.find(light => 
-            light instanceof BABYLON.DirectionalLight);
+    try {
+        // IMPORTANT: Register shader code BEFORE creating the material
+        // This ensures the shader code is available when the material tries to use it
+        BABYLON.Effect.ShadersStore["terrainVertexShader"] = vertexShaderCode;
+        BABYLON.Effect.ShadersStore["terrainFragmentShader"] = fragmentShaderCode;
         
-        if (sunLight) {
-            shaderMaterial.setVector3("sunDirection", sunLight.direction.normalize());
-            shaderMaterial.setColor3("sunColor", sunLight.diffuse);
-        }
-    });
-    
-    return shaderMaterial;
+        console.log("[ShaderMaterial] Shader code registered successfully");
+        
+        // Create the shader material with the CORRECT SHADER NAMES
+        // Note: these names must match exactly what we registered above
+        const shaderMaterial = new BABYLON.ShaderMaterial(
+            "terrainShaderMaterial",
+            scene,
+            {
+                vertex: "terrain", // Fixed: Must match the prefix used in ShadersStore
+                fragment: "terrain", // Fixed: Must match the prefix used in ShadersStore
+            },
+            {
+                attributes: ["position", "normal", "uv"],
+                uniforms: [
+                    "world", "worldView", "worldViewProjection", 
+                    "view", "projection", "maxHeight"
+                ],
+                needAlphaBlending: false,
+                needAlphaTesting: false
+            }
+        );
+        
+        // Set initial shader parameters 
+        shaderMaterial.setFloat("maxHeight", config.terrain.maxHeight);
+        console.log("[ShaderMaterial] Set maxHeight to", config.terrain.maxHeight);
+        
+        // Set material parameters for biomes
+        // Grass biome
+        shaderMaterial.setColor3("grassColor", new BABYLON.Color3(0.3, 0.5, 0.2));
+        shaderMaterial.setColor3("grassColorVariation", new BABYLON.Color3(0.1, 0.1, 0.05));
+        shaderMaterial.setFloat("grassRoughness", 0.8);
+        
+        // Rock biome
+        shaderMaterial.setColor3("rockColor", new BABYLON.Color3(0.5, 0.45, 0.4));
+        shaderMaterial.setColor3("rockColorVariation", new BABYLON.Color3(0.1, 0.1, 0.1));
+        shaderMaterial.setFloat("rockRoughness", 0.9);
+        
+        // Snow biome
+        shaderMaterial.setColor3("snowColor", new BABYLON.Color3(0.9, 0.9, 0.95));
+        shaderMaterial.setColor3("snowColorVariation", new BABYLON.Color3(0.05, 0.05, 0.05));
+        shaderMaterial.setFloat("snowRoughness", 0.7);
+        
+        // Sand biome
+        shaderMaterial.setColor3("sandColor", new BABYLON.Color3(0.76, 0.7, 0.5));
+        shaderMaterial.setColor3("sandColorVariation", new BABYLON.Color3(0.1, 0.1, 0.05));
+        shaderMaterial.setFloat("sandRoughness", 0.6);
+        
+        // Material boundaries
+        shaderMaterial.setFloat("snowHeight", 0.75); // Where snow begins
+        shaderMaterial.setFloat("rockHeight", 0.4);  // Where rock begins
+        shaderMaterial.setFloat("sandHeight", 0.1);  // Where sand begins
+        
+        // Slopes
+        shaderMaterial.setFloat("steepSlopeThreshold", 0.5); // Above this slope value, use rock material
+        shaderMaterial.setFloat("slopeSmoothness", 0.1);    // Transition smoothness between slope materials
+        
+        // Noise parameters
+        shaderMaterial.setFloat("globalNoiseScale", 0.01);  // Global scale for all noise
+        shaderMaterial.setFloat("detailNoiseScale", 50.0);  // Detail noise scale
+        shaderMaterial.setFloat("noiseIntensity", 0.1);     // Intensity of noise effect on colors
+        
+        // Material blending
+        shaderMaterial.setFloat("materialBlendSharpness", 10.0); // Higher values = sharper transitions
+        
+        // Lighting parameters
+        shaderMaterial.setFloat("ambientIntensity", 0.3);   // Ambient light intensity
+        shaderMaterial.setVector3("sunDirection", new BABYLON.Vector3(-0.5, -0.6, 0.3).normalize());
+        shaderMaterial.setColor3("sunColor", new BABYLON.Color3(1.0, 0.9, 0.7)); // Warm sunlight
+        
+        // Backface culling for performance
+        shaderMaterial.backFaceCulling = true;
+        
+        // Disable alpha blending (fully opaque)
+        shaderMaterial.alphaMode = BABYLON.Engine.ALPHA_DISABLE;
+        
+        // Update parameters from scene lighting
+        scene.onBeforeRenderObservable.add(() => {
+            // Find directional light to use as sun
+            const sunLight = scene.lights.find(light => 
+                light instanceof BABYLON.DirectionalLight);
+            
+            if (sunLight) {
+                shaderMaterial.setVector3("sunDirection", sunLight.direction.normalize());
+                shaderMaterial.setColor3("sunColor", sunLight.diffuse);
+            }
+        });
+        
+        console.log("[ShaderMaterial] Shader material created successfully");
+        return shaderMaterial;
+    } catch (error) {
+        console.error("[ShaderMaterial] Error creating shader material:", error);
+        throw error;
+    }
 }
 
 /**
@@ -384,6 +402,8 @@ function getFragmentShaderCode() {
  * @param {Object} parameters - Object containing parameter values
  */
 export function updateShaderParameters(material, parameters) {
+    console.log("[ShaderMaterial] Updating parameters:", parameters);
+    
     // Update color parameters
     if (parameters.grassColor) {
         material.setColor3("grassColor", BABYLON.Color3.FromHexString(parameters.grassColor));
@@ -448,36 +468,42 @@ export function updateShaderParameters(material, parameters) {
  * @param {string} presetName - Optional name for the preset
  */
 export function saveMaterialPreset(material, presetName = "default") {
-    const preset = {
-        // Colors
-        grassColor: material.getColor3("grassColor").toHexString(),
-        rockColor: material.getColor3("rockColor").toHexString(),
-        snowColor: material.getColor3("snowColor").toHexString(),
-        sandColor: material.getColor3("sandColor").toHexString(),
+    try {
+        const preset = {
+            // Colors
+            grassColor: material.getColor3("grassColor").toHexString(),
+            rockColor: material.getColor3("rockColor").toHexString(),
+            snowColor: material.getColor3("snowColor").toHexString(),
+            sandColor: material.getColor3("sandColor").toHexString(),
+            
+            // Heights
+            snowHeight: material.getFloat("snowHeight"),
+            rockHeight: material.getFloat("rockHeight"),
+            sandHeight: material.getFloat("sandHeight"),
+            
+            // Slopes
+            steepSlopeThreshold: material.getFloat("steepSlopeThreshold"),
+            slopeSmoothness: material.getFloat("slopeSmoothness"),
+            
+            // Noise
+            globalNoiseScale: material.getFloat("globalNoiseScale"),
+            detailNoiseScale: material.getFloat("detailNoiseScale"),
+            noiseIntensity: material.getFloat("noiseIntensity"),
+            
+            // Blending
+            materialBlendSharpness: material.getFloat("materialBlendSharpness")
+        };
         
-        // Heights
-        snowHeight: material.getFloat("snowHeight"),
-        rockHeight: material.getFloat("rockHeight"),
-        sandHeight: material.getFloat("sandHeight"),
+        // Save to localStorage
+        const key = `infiniteHorizons_materialPreset_${presetName}`;
+        localStorage.setItem(key, JSON.stringify(preset));
+        console.log("[ShaderMaterial] Saved preset:", presetName);
         
-        // Slopes
-        steepSlopeThreshold: material.getFloat("steepSlopeThreshold"),
-        slopeSmoothness: material.getFloat("slopeSmoothness"),
-        
-        // Noise
-        globalNoiseScale: material.getFloat("globalNoiseScale"),
-        detailNoiseScale: material.getFloat("detailNoiseScale"),
-        noiseIntensity: material.getFloat("noiseIntensity"),
-        
-        // Blending
-        materialBlendSharpness: material.getFloat("materialBlendSharpness")
-    };
-    
-    // Save to localStorage
-    const key = `infiniteHorizons_materialPreset_${presetName}`;
-    localStorage.setItem(key, JSON.stringify(preset));
-    
-    return preset;
+        return preset;
+    } catch (error) {
+        console.error("[ShaderMaterial] Error saving preset:", error);
+        return null;
+    }
 }
 
 /**
@@ -494,14 +520,16 @@ export function loadMaterialPreset(material, presetName = "default") {
         try {
             const preset = JSON.parse(presetJson);
             updateShaderParameters(material, preset);
+            console.log("[ShaderMaterial] Loaded preset:", presetName);
             return true;
         } catch (e) {
-            console.error("Error loading material preset:", e);
+            console.error("[ShaderMaterial] Error loading material preset:", e);
             return false;
         }
+    } else {
+        console.log("[ShaderMaterial] Preset not found:", presetName);
+        return false;
     }
-    
-    return false;
 }
 
 /**
